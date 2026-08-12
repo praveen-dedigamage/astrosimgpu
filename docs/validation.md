@@ -61,6 +61,48 @@ This control is also a useful canary. Three separate implementation errors
 were caught by noticing that the default configuration had become
 indistinguishable from it.
 
+## Step size dependence
+
+The reported values depend on the integration step. `config/use_case.json` at
+60 s of model time, seed 1, varying only `substeps`:
+
+| substeps | transients detected | mean pairwise correlation |
+|---|---|---|
+| 1 | 56 | 0.0106 |
+| 2 | 63 | 0.0140 |
+| 4 | 68 | 0.0170 |
+| 8 | 71 | 0.0208 |
+
+The transient count is converging: the increments are 7, 5 and 3, heading for
+somewhere near 73 to 75. The default of `substeps = 1` therefore undercounts
+transients by roughly 20 %.
+
+The correlation is not converging in the same way. Its increments are 0.0034,
+0.0030 and 0.0038, with no sign of shrinking. On a quantity this close to zero,
+in a simulation driven by noise, that is more likely to be scatter in the
+measure than error in the integrator. Distinguishing the two requires several
+seeds at each level, which has not been done.
+
+What this does and does not affect:
+
+- **The regime transition is unaffected.** Asynchronous is 0.0106 to 0.0208
+  across the whole range; bursting is 0.4177. The qualitative result has a
+  twentyfold margin.
+- **Quantitative values are not converged.** A number like "mean pairwise
+  correlation 0.0106" is a property of this discretisation, not of the model.
+  Comparing it against the reference implementation would compare two
+  discretisation errors.
+
+Use `substeps` of 4 or more for anything quantitative, and state the value
+alongside the result. NEST uses an adaptive GSL solver here, which controls
+this automatically; that is difference 1 in the README, and this table is what
+makes it concrete.
+
+There is a consequence for the GPU port. Raising `substeps` multiplies the
+arithmetic per communication step without adding any communication, so the
+update phase grows as a fraction of the run. A converged configuration is
+therefore more offload-friendly than the default one, not less.
+
 ## What has not been checked
 
 Stated explicitly, because the gap matters more than the agreement:
