@@ -42,12 +42,19 @@ CPU_BIN=build-cpu/astrosimgpu
 GPU_BIN=build-gpu/astrosimgpu
 GPU_TESTS=build-gpu/astrosimgpu_tests
 
-# The value the CPU build produces for this configuration and seed. The
-# offloaded run has to reproduce it: a wrong map direction shows up here and
-# almost nowhere else, because the simulation will still run and still look
-# plausible.
-EXPECTED=0.0106
+# Which configuration to compare, and for how long. Override on submission:
+#
+#   sbatch --export=ALL,CONFIG=config/scale_1000.json,SIMTIME=10000 \
+#          scripts/roihu/gpu_offload_test.sbatch
+CONFIG=${CONFIG:-config/use_case.json}
+SIMTIME=${SIMTIME:-60000}
 
+# The check is that the two builds agree with each other. A hardcoded value
+# would only be valid for one configuration, and the failure being guarded
+# against is a wrong map direction, which makes the offloaded run disagree with
+# the host run while still producing plausible output.
+
+echo "config  : $CONFIG   sim-time: $SIMTIME ms"
 echo "host    : $(hostname)"
 echo "arch    : $(uname -m)"
 echo "cores   : $(nproc)"
@@ -80,7 +87,7 @@ echo
 echo "=============== CPU build ==============="
 CPU_START=$SECONDS
 OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8} "$CPU_BIN" \
-    --config config/use_case.json -t 60000 -o results/cmp-cpu > /dev/null
+    --config "$CONFIG" -t "$SIMTIME" -o results/cmp-cpu > /dev/null
 CPU_TIME=$((SECONDS - CPU_START))
 CPU_VAL=$(grep 'mean pairwise' results/cmp-cpu/run.txt | awk '{print $NF}')
 grep -E 'update astrocytes|update neurons|total|real-time' results/cmp-cpu/run.txt
@@ -90,7 +97,7 @@ echo
 echo "=============== offload build ==============="
 GPU_START=$SECONDS
 OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8} "$GPU_BIN" \
-    --config config/use_case.json -t 60000 -o results/cmp-gpu > /dev/null
+    --config "$CONFIG" -t "$SIMTIME" -o results/cmp-gpu > /dev/null
 GPU_TIME=$((SECONDS - GPU_START))
 GPU_VAL=$(grep 'mean pairwise' results/cmp-gpu/run.txt | awk '{print $NF}')
 grep -E 'update astrocytes|update neurons|total|real-time' results/cmp-gpu/run.txt
@@ -105,7 +112,7 @@ echo
 # problem. Correctness is what this job is for.
 # ---------------------------------------------------------------------------
 echo "=============== result ==============="
-echo "expected correlation : $EXPECTED"
+echo "config               : $CONFIG  (-t $SIMTIME)"
 echo "CPU build            : $CPU_VAL"
 echo "offload build        : $GPU_VAL"
 echo
@@ -121,5 +128,6 @@ if [[ $TESTS_RC -ne 0 ]]; then
 fi
 
 echo
-echo "Astrocyte update is 4.3% of wall clock here, so timings are expected to"
-echo "be close. The neuron update, which is 92%, is still on the host."
+echo "Only the astrocyte update is offloaded. The neuron update is still on"
+echo "the host, so the totals include host work in both columns. Compare the"
+echo "'update astrocytes' rows against each other, not the totals."
