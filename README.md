@@ -1,7 +1,9 @@
 # astrosimgpu
 
-**Status: CPU-only. There is no GPU code in this repository yet.** The name
-describes the direction of the work. See `docs/gpu-port.md` for the plan.
+**Status: the default build is CPU-only.** A first offload path exists for the
+astrocyte update, behind a build flag that is off by default. It has not been
+compiled by an offloading compiler or run on a GPU. See "GPU offload" below and
+`docs/gpu-port.md` for the plan.
 
 A C++17 simulator for neuron-astrocyte networks. It contains:
 
@@ -34,6 +36,8 @@ written for three reasons:
    rather than inside a simulator kernel.
 3. The data layout is prepared for GPU offload. Populations are stored as
    structure-of-arrays and each cell update writes only its own array element.
+   The astrocyte update has already been restructured into device-callable
+   free functions.
 
 Use the reference implementation for published results.
 
@@ -58,6 +62,48 @@ CMake is also supported:
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DASTROSIMGPU_NATIVE=ON
 cmake --build build -j
 ```
+
+## GPU offload
+
+The astrocyte update has been restructured so that it can run as an OpenMP
+target region. This is the first step of the port described in
+`docs/gpu-port.md`.
+
+The per-cell code was moved out of `AstrocytePopulation` into free functions in
+`include/astrosimgpu/astrocyte_kernel.hpp`. These take plain scalars only, with
+no `this` pointer, no `std::vector`, and no reference into a class. A member
+function cannot be offloaded, so this restructuring was needed before any
+directive could be added. The random draws were moved to free functions in
+`rng.hpp` for the same reason.
+
+The host loop and the offloaded loop call the same `astro_advance` function.
+Only the directive above the loop differs. The arithmetic is therefore covered
+by the existing tests through the host path, and a test checks that
+`rng_normal` matches `CounterRng` exactly.
+
+To build with offload enabled:
+
+```bash
+make OFFLOAD=1 OFFLOAD_FLAGS="-mp=gpu -gpu=cc90" CXX=nvc++
+```
+
+Or with CMake, `-DASTROSIMGPU_OFFLOAD=ON` plus the offload flags for your
+compiler.
+
+Three limitations:
+
+1. **Off by default.** The default build contains no device code.
+2. **Astrocyte only.** The neuron update is 92 % of run time and is still
+   host-only. It emits spikes, so the per-thread spike collection has to be
+   reworked before it can be offloaded.
+3. **Not tested on a GPU.** This code has never been compiled by an offloading
+   compiler or run on a device. It compiles with the macro defined and the
+   pragmas ignored, which shows only that the syntax is valid. The first real
+   build should be expected to fail.
+
+The restructuring was checked to reproduce the previous results exactly: mean
+pairwise correlation 0.0106 in the asynchronous regime and 0.4177 in the
+bursting regime, unchanged to four decimal places.
 
 ## Run
 
