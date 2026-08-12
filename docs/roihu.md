@@ -35,7 +35,13 @@ grants up to 72 cores and 217 GiB (95 GiB HBM3 + 122 GiB LPDDR5).
 | `gpumedium` | 36 h | 1–4 | 4 | longer runs |
 | `gpularge` | 36 h | 4/4 | 10 | multi-node |
 
-Request GPUs with `--gres=gpu:GH200:N`.
+Request GPUs with `--gres=gpu:gh200:N`. The gres name is lowercase. Slurm
+gres names are case-sensitive, and `gpu:GH200:1` matches nothing, so the job is
+admitted with zero cores and rejected with a message about the request not
+being supported, which does not point at the cause.
+
+Do not request memory on a GPU partition. It is allocated with the GPU and an
+explicit `--mem` is overridden.
 
 `gputest` is enough for all the baseline work — the runs are seconds of wall
 clock and the 15-minute limit usually means a shorter queue.

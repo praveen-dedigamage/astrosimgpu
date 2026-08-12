@@ -4,10 +4,9 @@
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=16G
-#SBATCH --gres=gpu:GH200:1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=72
+#SBATCH --gres=gpu:gh200:1
 #SBATCH --output=offload-%j.out
 #SBATCH --error=offload-%j.err
 
@@ -25,6 +24,13 @@
 # Then:
 #
 #   sbatch scripts/roihu/gpu_offload_test.sbatch
+#
+# The gres name is lowercase gh200. Slurm gres names are case-sensitive, and
+# gpu:GH200:1 matches nothing: the job is then admitted with zero cores and
+# fails with a message about the request being unsupported.
+#
+# Memory is not requested. It comes with the GPU allocation, and asking for it
+# is overridden.
 #
 # Change --account above if this project has no Roihu GPU allocation.
 

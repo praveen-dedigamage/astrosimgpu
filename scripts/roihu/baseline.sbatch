@@ -4,9 +4,9 @@
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
+#SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=72
-#SBATCH --gres=gpu:GH200:1
+#SBATCH --gres=gpu:gh200:1
 #SBATCH --output=baseline-%j.out
 #SBATCH --error=baseline-%j.err
 
