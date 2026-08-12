@@ -13,6 +13,10 @@ namespace astrosimgpu {
 /// carrying an object across the host boundary. CounterRng below is a
 /// convenience wrapper over exactly these, so host and device draws agree by
 /// construction rather than by being kept in step.
+#ifdef ASTROSIMGPU_OFFLOAD
+#pragma omp declare target
+#endif
+
 inline std::uint64_t rng_bits(std::uint64_t seed, std::uint64_t stream, std::uint64_t counter) {
     std::uint64_t z = seed;
     z += stream * 0x9E3779B97F4A7C15ULL;
@@ -41,6 +45,10 @@ inline real rng_normal(std::uint64_t seed, std::uint64_t stream) {
     return std::sqrt(-2.0 * std::log(u1)) *
            std::cos(6.283185307179586476925286766559 * u2);
 }
+
+#ifdef ASTROSIMGPU_OFFLOAD
+#pragma omp end declare target
+#endif
 
 /// Counter-based random number generator.
 ///
