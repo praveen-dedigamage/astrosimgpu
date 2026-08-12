@@ -1,0 +1,133 @@
+// The "Sparse" benchmark model from the reference implementation, for
+// comparison against a published number.
+//
+// Parameters are taken from model_default in the reference
+// benchmarks/models/astrocyte/network.py. Anything not set there is a NEST
+// default and is left at the compiled-in default here. No parameter is
+// randomised, and the only input is a 2000 Hz Poisson train: the benchmark
+// creates no noise generator.
+//
+// The paper reports a mean neuronal firing rate of 4.76 spikes/s for this
+// model at 20,000 cells, averaged over nine simulations, against 11.95 for the
+// "Synchronous" variant.
+
+{
+  "N": {
+    "N_A": 10000,
+    "N_E": 8000,
+    "N_I": 2000
+  },
+  "simulation": {
+    "dt": 0.1,
+    "substeps": 1,
+    "pre_sim_time": 1000,
+    "sim_time": 10000,
+    "seed": 1,
+    "output_dir": "results/paper-sparse",
+    "record_spikes": true,
+    "record_astro": false,
+    "record_neuron": false,
+    "record_every": 100
+  },
+  "astrocyte": {
+    "Ca_tot": 2.0,
+    "IP3_0": 0.16,
+    "IP3": 0.4,
+    "Kd_IP3_1": 0.13,
+    "Kd_IP3_2": 0.9434,
+    "Kd_act": 0.08234,
+    "Kd_inh": 1.049,
+    "Km_SERCA": 0.1,
+    "SIC_scale": 1.0,
+    "SIC_th": 0.19669,
+    "k_IP3R": 0.0002,
+    "rate_IP3R": 0.006,
+    "rate_L": 0.00011,
+    "rate_SERCA": 0.0009,
+    "ratio_ER_cyt": 0.185,
+    "tau_IP3": 7142.0,
+    "Ca_init": 0.073,
+    "h_init": 0.793
+  },
+  "randomize_astro": {
+    "enabled": false
+  },
+  "randomize_neuron": {
+    "enabled": false
+  },
+  "neuron_exc": {
+    "C_m": 281.0,
+    "g_L": 30.0,
+    "E_L": -70.6,
+    "V_th": -50.4,
+    "Delta_T": 2.0,
+    "a": 4.0,
+    "b": 80.5,
+    "tau_w": 144.0,
+    "V_reset": -60.0,
+    "V_peak": 0.0,
+    "t_ref": 0.0,
+    "E_ex": 0.0,
+    "E_in": -85.0,
+    "tau_syn_ex": 2.0,
+    "tau_syn_in": 4.0,
+    "V_m": -70.6
+  },
+  "neuron_inh": {
+    "C_m": 281.0,
+    "g_L": 30.0,
+    "E_L": -70.6,
+    "V_th": -50.4,
+    "Delta_T": 2.0,
+    "a": 4.0,
+    "b": 80.5,
+    "tau_w": 144.0,
+    "V_reset": -60.0,
+    "V_peak": 0.0,
+    "t_ref": 0.0,
+    "E_ex": 0.0,
+    "E_in": -85.0,
+    "tau_syn_ex": 2.0,
+    "tau_syn_in": 4.0,
+    "V_m": -70.6
+  },
+  "synapse": {
+    "w_e": 1.0,
+    "w_i": -4.0,
+    "w_n2a": 1.0,
+    "w_a2n": 0.05,
+    "d_e": 2.0,
+    "d_i": 1.0,
+    "d_a2n": 1.0,
+    "stp": {
+      "enabled": true,
+      "U": 0.5,
+      "tau_rec": 800.0,
+      "tau_fac": 0.0
+    }
+  },
+  "connectivity": {
+    "p_primary": 0.1,
+    "p_third_if_primary": 0.5,
+    "pool_size": 10,
+    "pool_type": "random",
+    "allow_autapses": false
+  },
+  "input_astro": {
+    "poiss_rate": 0.0,
+    "gauss_noise_var": 0.0
+  },
+  "input_exc": {
+    "poiss_rate": 2000.0,
+    "poiss_weight": 1.0,
+    "gauss_noise_var": 0.0
+  },
+  "input_inh": {
+    "poiss_rate": 2000.0,
+    "poiss_weight": 1.0,
+    "gauss_noise_var": 0.0
+  },
+  "analysis": {
+    "enabled": false
+  }
+}
