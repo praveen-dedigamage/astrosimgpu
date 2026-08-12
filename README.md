@@ -1,18 +1,7 @@
 # astrosimgpu
 
-**Status: the default build is CPU-only.** An OpenMP target offload of the
-astrocyte update exists behind a build flag that is off by default. It has been
-built with NVHPC and run on an NVIDIA GH200, where it produces results
-identical to the host build. It is not yet faster than the host in most
-configurations. See "GPU offload" below and `docs/gpu-port.md`.
-
-A C++17 simulator for neuron-astrocyte networks. It contains:
-
-- Adaptive exponential integrate-and-fire (AdEx) neurons with conductance-based
-  synapses
-- Li-Rinzel astrocytes with IP3-driven calcium dynamics
-- A slow inward current (SIC) from astrocytes back to neurons
-- Tripartite connectivity between the two populations
+Simulates a network of spiking neurons coupled to astrocytes, and measures
+whether the astrocytes synchronise it.
 
 It reimplements the model from:
 
@@ -22,25 +11,91 @@ It reimplements the model from:
 > simulation.* PLOS Computational Biology 21(9): e1013503.
 > <https://doi.org/10.1371/journal.pcbi.1013503>
 
-The reference implementation is Python running on the NEST simulator. It is
-published at <https://doi.org/10.5281/zenodo.13757202>. This implementation is
-standalone C++ and does not use NEST.
+The reference implementation is Python running on the NEST simulator, published
+at <https://doi.org/10.5281/zenodo.13757202>. This one is standalone C++17 and
+does not use NEST.
 
-## Purpose
+## What it does
 
-The reference implementation is the authority on the model. This one was
-written for three reasons:
+Astrocytes are the non-neuronal cells of the brain. There is evidence that they
+do not merely support neurons but shape how neuronal populations behave
+together. This program simulates that interaction and measures the effect.
 
-1. It builds with only a C++17 compiler. No NEST, MPI, GSL, or conda
-   environment is needed.
-2. The integrator, time step, and substepping are set in the configuration file
-   rather than inside a simulator kernel.
-3. The data layout is prepared for GPU offload. Populations are stored as
-   structure-of-arrays and each cell update writes only its own array element.
-   The astrocyte update has already been restructured into device-callable
-   free functions.
+Each synapse in the network can recruit an astrocyte. The astrocyte receives
+the presynaptic spikes, which raise its IP3 concentration and release calcium
+from its internal stores. When that calcium crosses a threshold, the astrocyte
+sends a slow inward current back to the postsynaptic neuron. Neurons drive
+astrocytes, astrocytes drive neurons, and the question is what that loop does
+to the network as a whole.
 
-Use the reference implementation for published results.
+Run the default configuration:
+
+```bash
+./build/astrosimgpu --config config/use_case.json -t 120000
+```
+
+```
+mean firing rate             0.4803 Hz
+astrocytes with transients   64 / 100
+mean pairwise correlation    0.0012
+```
+
+Neurons fire sparsely and irregularly. Astrocyte calcium transients occur, but
+they are uncorrelated with each other.
+
+Now change one number. `config/bursting.json` is identical except that the
+neuron-to-astrocyte weight goes from 0.20 to 0.31:
+
+```bash
+./build/astrosimgpu --config config/bursting.json -t 120000
+```
+
+```
+mean firing rate             0.6364 Hz
+astrocytes with transients   100 / 100
+mean pairwise correlation    0.3429
+```
+
+Every astrocyte is now active, and their calcium transients are strongly
+correlated. The network has moved from asynchronous firing into synchronised
+activity, and the only thing that changed is how strongly neurons drive
+astrocytes. The feedback runs entirely through the astrocytic pathway.
+
+Both runs take about a minute. `-t 120000` shortens the recorded window from
+the configured five minutes; the transition is present either way.
+
+Reproducing that transition is what says the implementation is right.
+`docs/validation.md` records it, together with the four errors found while
+getting there and the things that remain unchecked.
+
+## Status
+
+The default build is CPU-only and needs nothing but a C++17 compiler.
+
+An OpenMP target offload of the astrocyte update exists behind a build flag
+that is off by default. It has been built with NVHPC and run on an NVIDIA
+GH200, where it produces results identical to the host build. It is not yet
+faster than the host in most configurations. See "GPU offload" below and
+`docs/gpu-port.md`.
+
+## Why a second implementation
+
+The reference implementation is the authority on the model. This one exists
+because three things are awkward through the NEST Python interface:
+
+1. **It builds with only a C++17 compiler.** No NEST, MPI, GSL, or conda
+   environment.
+2. **The numerics are explicit.** The integrator, time step and substepping are
+   set in the configuration file rather than inside a simulator kernel.
+   `docs/validation.md` shows why that matters: the results are not converged at
+   the default step size.
+3. **The data layout is prepared for GPU offload.** Populations are stored as
+   structure-of-arrays and each cell update writes only its own element. The
+   astrocyte update has already been restructured into device-callable free
+   functions.
+
+Use the reference implementation for published results. Use this one to
+explore, to profile, or to experiment with the numerics.
 
 ## Build
 
@@ -68,6 +123,40 @@ CMake is also supported:
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DASTROSIMGPU_NATIVE=ON
 cmake --build build -j
 ```
+
+## Run
+
+```bash
+make test                                      # 86 component checks
+./build/astrosimgpu --config config/quick.json # smoke test, about 0.3 s
+./build/astrosimgpu --config config/use_case.json
+```
+
+Command line options:
+
+```
+-c, --config PATH     parameter file (JSON)
+-o, --output DIR      output directory
+-s, --seed N          random seed
+-t, --sim-time MS     recorded duration
+-p, --pre-time MS     discarded transient
+-a, --astrocytes N    override the astrocyte count (random pools only)
+    --threads N       OpenMP threads
+    --no-analysis     skip the post-run summary
+```
+
+## Configurations
+
+| File | Description |
+|---|---|
+| `config/use_case.json` | Block astrocyte pools, sparse asynchronous firing. Default. |
+| `config/bursting.json` | Same, with a stronger neuron-to-astrocyte weight. The network becomes synchronised. |
+| `config/no_spiking.json` | Neurons silent. Astrocytes receive only their own Poisson input. Control condition. |
+| `config/random_pool.json` | Random astrocyte pools of five, lower recruitment probability, larger SIC weight. |
+| `config/scale_1000.json` | Ten times larger, in-degree held constant so the regime is preserved. |
+| `config/scale_1000_saturated.json` | Ten times larger with the connection probability fixed, so the network saturates. A throughput probe, not a model. |
+| `config/kernel_scaling.json` | Fixed neurons, astrocyte count set with `--astrocytes`. For measuring kernel throughput. |
+| `config/quick.json` | Small and short. For checking a build only. |
 
 ## GPU offload
 
@@ -138,40 +227,6 @@ nothing about whether the kernel itself is any good.
 The restructuring was checked to reproduce the previous results exactly: mean
 pairwise correlation 0.0106 in the asynchronous regime and 0.4177 in the
 bursting regime, unchanged to four decimal places.
-
-## Run
-
-```bash
-make test                                      # 86 component checks
-./build/astrosimgpu --config config/quick.json # smoke test, about 0.3 s
-./build/astrosimgpu --config config/use_case.json
-```
-
-Command line options:
-
-```
--c, --config PATH     parameter file (JSON)
--o, --output DIR      output directory
--s, --seed N          random seed
--t, --sim-time MS     recorded duration
--p, --pre-time MS     discarded transient
--a, --astrocytes N    override the astrocyte count (random pools only)
-    --threads N       OpenMP threads
-    --no-analysis     skip the post-run summary
-```
-
-## Configurations
-
-| File | Description |
-|---|---|
-| `config/use_case.json` | Block astrocyte pools, sparse asynchronous firing. Default. |
-| `config/bursting.json` | Same, with a stronger neuron-to-astrocyte weight. The network becomes synchronised. |
-| `config/no_spiking.json` | Neurons silent. Astrocytes receive only their own Poisson input. Control condition. |
-| `config/random_pool.json` | Random astrocyte pools of five, lower recruitment probability, larger SIC weight. |
-| `config/scale_1000.json` | Ten times larger, in-degree held constant so the regime is preserved. |
-| `config/scale_1000_saturated.json` | Ten times larger with the connection probability fixed, so the network saturates. A throughput probe, not a model. |
-| `config/kernel_scaling.json` | Fixed neurons, astrocyte count set with `--astrocytes`. For measuring kernel throughput. |
-| `config/quick.json` | Small and short. For checking a build only. |
 
 ## Model equations
 
