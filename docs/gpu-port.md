@@ -1,8 +1,12 @@
 # GPU port plan
 
 This document records the measured performance profile, what it implies for a
-GPU port, and the questions that are still open. It was written before any
-device code existed so the plan can be checked against the measurements.
+GPU port, and the questions that are still open.
+
+The plan was written before any device code existed, so it could be checked
+against measurements rather than the other way round. The measurements have
+since been taken and are recorded below; several of them contradict the
+expectations the plan started from, and those are marked where they occur.
 
 ## Measured baseline
 
@@ -36,41 +40,65 @@ profiles can therefore be compared directly.
 
 ## What the baseline shows
 
-96.8 % of run time is per-cell state update. That work is parallel across
-cells: each cell reads and writes only its own array element, and the
-integration does not touch shared memory. Communication is 2.3 % at this
-network size on one node.
+The profile above was measured on a single x86 core. It is not representative
+of the target machine, and it is not representative of a larger network either.
 
-This gives both the opportunity and its limit. Offloading the update phase
-addresses nearly all current cost. It also makes communication the limiting
-term. If the update took no time at all, the remaining 2.3 % would cap the
-speedup at about 43x for this configuration.
+On 72 Grace cores, same configuration:
 
-Two limitations of this measurement:
+| phase | 1 core, x86 | 72 Grace cores |
+|---|---|---|
+| update astrocytes | 4.3 % | 26.4 % |
+| update neurons | 92.5 % | 60.5 % |
+| everything else | 2.3 % | 13.1 % |
 
-- It is one node with 500 cells. The reference benchmarks use 20,000 cells
-  across several nodes and report that the update phase is the only one that
-  weak-scales. The delivery phases grow with scale. The 43:1 ratio here is
-  therefore the most favourable case.
-- Neuron update takes more than twenty times longer than astrocyte update.
-  There are five times as many neurons, and each neuron also draws Poisson
-  input every step. Whether the RNG or the integration dominates has not been
-  measured. The answer affects how the kernel should be written.
+Network size changes it far more. At 1000 astrocytes and 5000 neurons on the
+same 72 cores:
+
+| | 100 astro, 500 neurons | 1000 / 5000, fixed p | 1000 / 5000, fixed in-degree |
+|---|---|---|---|
+| synapses | 50 k | 5.0 M | 500 k |
+| both update phases | 86.9 % | 4.0 % | 97.6 % |
+| everything else | 13.1 % | 96.0 % | 2.4 % |
+
+So the case for offloading the update is not a fact about the code. It depends
+on how the network is scaled:
+
+- **Fixed connection probability.** Each neuron's input grows with the
+  population, the network saturates, and the delivery phases take 96 % of the
+  run. Offloading the update would address 4 % and cap the speedup near 1.04x.
+  This is how the reference benchmarks scale, which is why their delivery
+  phases grow and only the update phase weak-scales.
+- **Fixed in-degree.** The operating point is preserved and the update phases
+  take 97.6 %. Offloading them is worth up to roughly 40x.
+
+Both are defensible. Fixed in-degree is the biologically motivated one, since a
+cortical neuron has on the order of 10^4 synapses regardless of brain size.
+This question has to be settled before any performance target means anything.
+
+There is one further complication, from `docs/validation.md`: the default
+`substeps = 1` is not numerically converged, and quantitative work needs 4 or
+more. Raising `substeps` multiplies arithmetic per communication step without
+adding communication, so a converged configuration puts a larger share in the
+update phase than the default one does.
 
 ## Which loops become kernels
 
-In order of measured cost:
+Ordered by cost under fixed-in-degree scaling, where the update phases dominate.
+Under fixed-probability scaling none of this is worth doing and the delivery
+phases are the target instead.
 
-1. `NeuronPopulation::update`, 92 % of run time. One thread per neuron. State
-   is seven doubles (V, w, g_ex, dg_ex, g_in, dg_in, I_sic) plus a refractory
-   counter. Parameters add sixteen more values. All of it can stay in registers
+1. `NeuronPopulation::update`. The larger of the two update phases in every
+   configuration measured except the smallest. One thread per neuron. State is
+   seven doubles (V, w, g_ex, dg_ex, g_in, dg_in, I_sic) plus a refractory
+   counter, with sixteen more parameter values. All of it can stay in registers
    for the duration of a step.
-2. `AstrocytePopulation::update`, 4 %. One thread per astrocyte, three state
-   variables and four per-cell parameters. This is the simplest kernel and the
-   right one to write first, as a correctness check.
-3. The delivery phases stay on the host for now. They are 2 % of current cost.
-   They also contain the scaling question described below, which needs its own
-   investigation.
+2. `AstrocytePopulation::update`. Smaller, and already done. Three state
+   variables and four per-cell parameters. It was the right one to write first
+   because it is the simplest, not because it is the most valuable.
+3. The delivery phases stay on the host for now. They are a few per cent under
+   fixed-in-degree scaling and almost everything under fixed-probability
+   scaling, so whether they matter is the same question as which scaling the
+   science uses.
 
 ## What is already prepared
 
@@ -120,11 +148,41 @@ restructuring was verified to reproduce the previous results exactly: mean
 pairwise correlation 0.0106 in the asynchronous regime and 0.4177 in the
 bursting regime, unchanged to four decimal places.
 
-**This code has never been compiled by an offloading compiler or run on a GPU.**
-It compiles with the macro defined and the pragmas ignored. That establishes
-only that the syntax is valid. The first real build should be expected to fail.
-What has been done is the restructuring that the first build would otherwise
-require.
+### Measured on Roihu
+
+Built with NVHPC 26.3 on `roihu-gpu.csc.fi` and run on one NVIDIA GH200 120GB.
+`-Minfo=mp` reports the target region becoming a GPU kernel, parallelised
+across teams and 128 threads, with device routines generated for
+`astro_advance`, `astro_derivatives`, `rng_bits`, `rng_uniform` and
+`rng_normal`.
+
+All 86 component checks pass on the device, and the offloaded run reproduces
+the host result exactly in every configuration tested. The kernel is correct.
+
+Astrocyte update phase only, normalised per timestep:
+
+| astrocytes | host, 72 Grace cores | offload | |
+|---|---|---|---|
+| 100 | 3.1 us/step | 41.2 us/step | host 13x faster |
+| 1000 | 58.4 us/step | 50.4 us/step | device 1.16x faster |
+
+**The device cost is nearly flat: 41 us for 100 cells, 50 us for 1000.** Ten
+times the work for a fifth more time. That answers experiment 1 for these two
+sizes: the cost is per launch, not per byte. The `map` clauses sit inside the
+per-step update, so each of the run's steps allocates eight arrays on the
+device, copies four in, launches a kernel over a few hundred cells, copies four
+back and frees them. Around 40 microseconds of the 50 is fixed overhead and the
+arithmetic is the remainder.
+
+The device wins at 1000 astrocytes only because the host got slower. It did not
+get faster.
+
+One host result is unexplained. Per cell per step, the host cost went from 31
+nanoseconds at 100 astrocytes to 58 at 1000. It should have improved: 100 cells
+across 72 threads is 1.4 cells per thread, which is almost entirely dispatch
+overhead. Getting worse at ten times the size is backwards. Denormal arithmetic
+in the calcium variables and NUMA effects across the Grace cores are both
+plausible and neither has been checked.
 
 The neuron update needs the same treatment. It is a larger job because it emits
 spikes, so the per-thread spike collection has to be reworked into something a

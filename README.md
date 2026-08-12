@@ -1,9 +1,10 @@
 # astrosimgpu
 
-**Status: the default build is CPU-only.** A first offload path exists for the
-astrocyte update, behind a build flag that is off by default. It has not been
-compiled by an offloading compiler or run on a GPU. See "GPU offload" below and
-`docs/gpu-port.md` for the plan.
+**Status: the default build is CPU-only.** An OpenMP target offload of the
+astrocyte update exists behind a build flag that is off by default. It has been
+built with NVHPC and run on an NVIDIA GH200, where it produces results
+identical to the host build. It is not yet faster than the host in most
+configurations. See "GPU offload" below and `docs/gpu-port.md`.
 
 A C++17 simulator for neuron-astrocyte networks. It contains:
 
@@ -56,6 +57,11 @@ make OPENMP=1 -j
 Apple clang does not include OpenMP, so on macOS the default build is
 single-threaded. The OpenMP pragmas are ignored and results are unchanged.
 
+On Roihu, build from `roihu-gpu.csc.fi`, which is the ARM login node. Binaries
+do not cross between the two login architectures. `docs/roihu.md` has the
+details and `scripts/roihu/` has the build and batch scripts. The code builds
+and passes all checks there with GCC 14.3.0 targeting Neoverse V2.
+
 CMake is also supported:
 
 ```bash
@@ -90,16 +96,44 @@ make OFFLOAD=1 OFFLOAD_FLAGS="-mp=gpu -gpu=cc90" CXX=nvc++
 Or with CMake, `-DASTROSIMGPU_OFFLOAD=ON` plus the offload flags for your
 compiler.
 
-Three limitations:
+### Measured on Roihu
+
+Built with NVHPC 26.3 on the Grace ARM login node and run on one NVIDIA GH200
+120GB. `-Minfo=mp` confirms the target region becomes a GPU kernel, parallelised
+across teams and 128 threads, with the device routines generated for
+`astro_advance`, `astro_derivatives` and the random number functions.
+
+**Correctness.** All 86 component checks pass on the device, and the offloaded
+run reproduces the host result exactly in every configuration tested.
+
+**Throughput**, astrocyte update phase only, normalised per timestep:
+
+| astrocytes | host, 72 Grace cores | offload | |
+|---|---|---|---|
+| 100 | 3.1 us/step | 41.2 us/step | host 13x faster |
+| 1000 | 58.4 us/step | 50.4 us/step | device 1.16x faster |
+
+The device cost barely moves for ten times the work: 41 to 50 microseconds. The
+cost is therefore per launch, not per byte. The `map` clauses sit inside the
+per-step update, so every step allocates eight arrays on the device, copies
+four in, launches a kernel over a few hundred cells, copies four back and frees
+them. Roughly 40 microseconds of that is fixed overhead.
+
+The device only wins at 1000 astrocytes because the host got slower, not
+because the device got faster.
+
+Keeping the arrays resident with `omp target enter data` should remove most of
+the fixed cost. That is the next change, and until it is made these numbers say
+nothing about whether the kernel itself is any good.
+
+### Limitations
 
 1. **Off by default.** The default build contains no device code.
-2. **Astrocyte only.** The neuron update is 92 % of run time and is still
-   host-only. It emits spikes, so the per-thread spike collection has to be
-   reworked before it can be offloaded.
-3. **Not tested on a GPU.** This code has never been compiled by an offloading
-   compiler or run on a device. It compiles with the macro defined and the
-   pragmas ignored, which shows only that the syntax is valid. The first real
-   build should be expected to fail.
+2. **Astrocyte only.** The neuron update is the larger phase in most
+   configurations and is still host-only. It emits spikes, so the per-thread
+   spike collection has to be reworked before it can be offloaded.
+3. **State is mapped every step.** The data lifecycle has not been moved out of
+   the timestep, which is what the measurements above are dominated by.
 
 The restructuring was checked to reproduce the previous results exactly: mean
 pairwise correlation 0.0106 in the asynchronous regime and 0.4177 in the
@@ -121,6 +155,7 @@ Command line options:
 -s, --seed N          random seed
 -t, --sim-time MS     recorded duration
 -p, --pre-time MS     discarded transient
+-a, --astrocytes N    override the astrocyte count (random pools only)
     --threads N       OpenMP threads
     --no-analysis     skip the post-run summary
 ```
@@ -133,6 +168,9 @@ Command line options:
 | `config/bursting.json` | Same, with a stronger neuron-to-astrocyte weight. The network becomes synchronised. |
 | `config/no_spiking.json` | Neurons silent. Astrocytes receive only their own Poisson input. Control condition. |
 | `config/random_pool.json` | Random astrocyte pools of five, lower recruitment probability, larger SIC weight. |
+| `config/scale_1000.json` | Ten times larger, in-degree held constant so the regime is preserved. |
+| `config/scale_1000_saturated.json` | Ten times larger with the connection probability fixed, so the network saturates. A throughput probe, not a model. |
+| `config/kernel_scaling.json` | Fixed neurons, astrocyte count set with `--astrocytes`. For measuring kernel throughput. |
 | `config/quick.json` | Small and short. For checking a build only. |
 
 ## Model equations
@@ -223,20 +261,40 @@ docs/                  validation results, GPU port plan, Roihu notes
 
 Each run reports wall-clock time split by phase. The phases match the
 decomposition used in the reference benchmarks (update, spike delivery, SIC
-gathering and delivery), so the two profiles can be compared. Single-threaded
-on `config/use_case.json`:
+gathering and delivery), so the two profiles can be compared.
 
-```
-update astrocytes        4.3 %
-update neurons          92.5 %
-spike delivery           0.1 %
-SIC gather+deliver       0.6 %
-arrival application      1.6 %
-```
+**A single profile number is misleading.** The split depends on the machine and
+much more strongly on how the network is scaled. `config/use_case.json`, 60 s
+of model time:
 
-Per-cell state update is 96.8 % of the run time. That work is parallel across
-cells. Communication is 2.3 % at this network size. `docs/gpu-port.md` explains
-what this means for a GPU port, including the speedup limit it implies.
+| phase | 1 core, x86 | 72 Grace cores |
+|---|---|---|
+| update astrocytes | 4.3 % | 26.4 % |
+| update neurons | 92.5 % | 60.5 % |
+| everything else | 2.3 % | 13.1 % |
+
+The astrocyte update takes a larger share on Grace because there are only 100
+astrocytes: across 72 threads that is 1.4 cells per thread, and thread dispatch
+costs more than the work.
+
+Network size matters more than the machine does. At 1000 astrocytes and 5000
+neurons, on the same 72 Grace cores:
+
+| | 100 astro, 500 neurons | 1000 / 5000, fixed p | 1000 / 5000, fixed in-degree |
+|---|---|---|---|
+| synapses | 50 k | 5.0 M | 500 k |
+| both update phases | 86.9 % | 4.0 % | 97.6 % |
+| everything else | 13.1 % | 96.0 % | 2.4 % |
+
+Scaling the population while holding the connection probability fixed
+multiplies each neuron's input by the same factor, and the delivery phases come
+to dominate. Holding the in-degree fixed keeps the operating point and leaves
+the update phases dominant. The reference benchmarks scale with a fixed
+probability, which is why their delivery phases grow with scale.
+
+Whether offloading the update is worth anything therefore depends on which
+scaling the science uses. `docs/gpu-port.md` works through the consequences and
+`docs/experiments.md` lists what is being measured next.
 
 ## Parameter sources
 
