@@ -1,0 +1,131 @@
+// Small, short configuration for checking that a build runs end to end.
+// Not a scientific parameter set: the population is too small and the
+// window too short for the calcium statistics to mean anything.
+
+{
+  "N": {
+    "N_A": 20,
+    "N_E": 80,
+    "N_I": 20
+  },
+  "simulation": {
+    "dt": 0.1,
+    "substeps": 1,
+    "pre_sim_time": 500,
+    "sim_time": 2000,
+    "seed": 1,
+    "output_dir": "results/quick",
+    "record_spikes": true,
+    "record_astro": true,
+    "record_neuron": false,
+    "record_every": 10,
+    "record_astro_max": 20,
+    "record_neuron_max": 50
+  },
+  "astrocyte": {
+    "Ca_tot": 1.8958264782990153,
+    "IP3_0": 0.010925583871830699,
+    "IP3": 0.010925583871830699,
+    "tau_IP3": 1058.7589568400845,
+    "delta_IP3": 0.04911592657233997,
+    "SIC_scale": 1.0,
+    "Kd_IP3_1": 0.13,
+    "Kd_IP3_2": 0.9434,
+    "Kd_act": 0.08234,
+    "Kd_inh": 1.049,
+    "Km_SERCA": 0.1,
+    "SIC_th": 0.19669,
+    "k_IP3R": 0.0002,
+    "rate_IP3R": 0.006,
+    "rate_L": 0.00011,
+    "rate_SERCA": 0.0009,
+    "ratio_ER_cyt": 0.185,
+    "Ca_init": 0.073,
+    "h_init": 0.793
+  },
+  "randomize_astro": {
+    "enabled": true,
+    "lower": 0.9,
+    "upper": 1.05,
+    "var": 0.1
+  },
+  "neuron_exc": {
+    "Delta_T": 2.0,
+    "a": 4.0,
+    "tau_w": 450.0,
+    "V_reset": -50.0,
+    "b": 300.0,
+    "V_m": -50.0,
+    "C_m": 130.0,
+    "g_L": 18.0,
+    "E_L": -58.0,
+    "V_th": -50.0,
+    "V_peak": 0.0,
+    "t_ref": 0.0,
+    "E_ex": 0.0,
+    "E_in": -85.0,
+    "tau_syn_ex": 0.2,
+    "tau_syn_in": 2.0
+  },
+  "neuron_inh": {
+    "Delta_T": 2.0,
+    "a": -0.8,
+    "tau_w": 264.0,
+    "V_reset": -60.0,
+    "b": 130.0,
+    "V_m": -60.0,
+    "C_m": 104.0,
+    "g_L": 4.3,
+    "E_L": -65.0,
+    "V_th": -52.0,
+    "V_peak": 0.0,
+    "t_ref": 0.0,
+    "E_ex": 0.0,
+    "E_in": -85.0,
+    "tau_syn_ex": 0.2,
+    "tau_syn_in": 2.0
+  },
+  "randomize_neuron": {
+    "enabled": true,
+    "lower": 0.9,
+    "upper": 1.1,
+    "var": 0.05
+  },
+  "synapse": {
+    "w_e": 5.0,
+    "w_i": -5.0,
+    "w_n2a": 0.2,
+    "w_a2n": 1.0,
+    "d_e": 1.0,
+    "d_i": 1.0,
+    "d_a2n": 1.0,
+    "stp": {
+      "enabled": true,
+      "U": 0.5,
+      "tau_rec": 800.0,
+      "tau_fac": 0.0
+    }
+  },
+  "connectivity": {
+    "p_primary": 0.2,
+    "p_third_if_primary": 0.2,
+    "pool_size": 1,
+    "pool_type": "block",
+    "allow_autapses": false
+  },
+  "input_astro": {
+    "poiss_rate": 3.029715502945856,
+    "poiss_weight": 1.0,
+    "gauss_noise_var": 0.0003
+  },
+  "input_exc": {
+    "poiss_rate": 2700.0,
+    "poiss_weight": 1.0,
+    "gauss_noise_var": 100.0
+  },
+  "input_inh": {
+    "poiss_rate": 2500.0,
+    "poiss_weight": 1.0,
+    "gauss_noise_var": 100.0
+  }
+}
