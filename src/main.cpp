@@ -31,6 +31,7 @@ void print_usage(const char* argv0) {
         << "  -s, --seed N          random seed             [from config]\n"
         << "  -t, --sim-time MS     recorded duration       [from config]\n"
         << "  -p, --pre-time MS     discarded transient     [from config]\n"
+        << "  -a, --astrocytes N    override the astrocyte count [from config]\n"
         << "      --threads N       OpenMP threads          [runtime default]\n"
         << "      --no-analysis     skip the post-run summary\n"
         << "  -h, --help            show this message\n";
@@ -144,6 +145,7 @@ int main(int argc, char** argv) {
     long long seed_override = -1;
     double sim_time_override = -1.0;
     double pre_time_override = -1.0;
+    long long astro_override = -1;
     int thread_override = 0;
 
     for (int i = 1; i < argc; ++i) {
@@ -167,6 +169,8 @@ int main(int argc, char** argv) {
             sim_time_override = std::stod(next("--sim-time"));
         } else if (arg == "-p" || arg == "--pre-time") {
             pre_time_override = std::stod(next("--pre-time"));
+        } else if (arg == "-a" || arg == "--astrocytes") {
+            astro_override = std::stoll(next("--astrocytes"));
         } else if (arg == "--threads") {
             thread_override = std::stoi(next("--threads"));
         } else if (arg == "--no-analysis") {
@@ -191,6 +195,12 @@ int main(int argc, char** argv) {
         }
         if (pre_time_override >= 0.0) {
             cfg.time.pre_sim_time = pre_time_override;
+        }
+        if (astro_override >= 0) {
+            // Varying the astrocyte count alone only makes sense with random
+            // pools, where it is independent of the neuron count. Block pools
+            // tie the two together.
+            cfg.N.N_astro = static_cast<index_t>(astro_override);
         }
 
 #ifdef _OPENMP
