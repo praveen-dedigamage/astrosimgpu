@@ -17,6 +17,30 @@ on 100 cells. The working hypothesis is that the `map` clauses inside
 `AstrocytePopulation::update` allocate, copy and free eight arrays on every one
 of the 800,000 steps, and that this dominates everything else.
 
+**The profile depends on how the network is scaled, and this changes the
+conclusion rather than the numbers.** At 1000 astrocytes and 5000 neurons on
+Grace:
+
+| | fixed p_primary | fixed in-degree |
+|---|---|---|
+| synapses | 5,001,457 | 500,189 |
+| update astrocytes | 2.9 % | 4.5 % |
+| update neurons | 1.1 % | 93.1 % |
+| communication | ~96 % | ~2.4 % |
+| mean pairwise correlation | 1.0000 | 0.0000 |
+
+Holding the connection probability fixed while scaling the population
+multiplies each neuron's input by the same factor. The network saturates, every
+astrocyte correlates perfectly with every other, and the delivery phases
+dominate. Holding the in-degree fixed keeps the operating point and leaves the
+update phase dominant.
+
+The reference benchmarks scale with a fixed connection probability, which is
+why their delivery phases grow with scale and only the update phase
+weak-scales. Whether offloading the update is worth anything therefore depends
+on which scaling the science uses, and that question has to be settled before
+the performance question means anything.
+
 Experiments 1 to 4 need no new code. Experiment 5 is the fix that 1 and 2 are
 meant to justify or rule out.
 

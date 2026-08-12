@@ -1,14 +1,10 @@
-// 1000 astrocytes and 5000 neurons, ten times the default network, with the
-// mean in-degree held constant.
+// The same tenfold network with p_primary left at 0.2, so the mean in-degree
+// grows with the population and the network saturates.
 //
-// p_primary is scaled from 0.2 to 0.02 along with the population. Scaling the
-// network while holding the connection probability fixed multiplies the input
-// each neuron receives by ten, which saturates the network: every astrocyte
-// then correlates perfectly with every other and the asynchronous regime is
-// gone. Fixing the in-degree keeps the operating point and makes this a larger
-// instance of the same model rather than a different one.
-//
-// Block connectivity requires N_A = (N_E + N_I) / 5.
+// This is a throughput probe, not a model of anything: the mean pairwise
+// correlation goes to 1.0 because every astrocyte is doing the same thing. It
+// is kept because the saturated network generates far more spikes, which makes
+// it a useful worst case for the delivery phases.
 
 {
   "N": {
@@ -22,7 +18,7 @@
     "pre_sim_time": 2000,
     "sim_time": 10000,
     "seed": 1,
-    "output_dir": "results/scale1000",
+    "output_dir": "results/scale1000-saturated",
     "record_spikes": true,
     "record_astro": true,
     "record_neuron": false,
@@ -115,7 +111,7 @@
     }
   },
   "connectivity": {
-    "p_primary": 0.02,
+    "p_primary": 0.2,
     "p_third_if_primary": 0.2,
     "pool_size": 1,
     "pool_type": "block",
