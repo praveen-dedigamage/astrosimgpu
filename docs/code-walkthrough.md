@@ -1,17 +1,62 @@
 # Code walkthrough
 
-A reading order, and the reason behind each decision that is not obvious from
-the code itself. About 3,200 lines in total, of which roughly 900 are the
-model and the rest is infrastructure.
+This document explains how the simulator is organised and why it is built the
+way it is. It assumes C++ but no background in neuroscience, and no prior
+knowledge of this project.
 
-Read the files in the order below. Each section says what the file is for, the
-one idea in it worth understanding, and what to ignore.
+The source is about 3,200 lines. Roughly 900 of those are the biological model
+and the rest is supporting infrastructure.
 
 ---
 
-## 1. `include/astrosimgpu/types.hpp` — 45 lines
+## What is being simulated
 
-Start here. It is short and everything else uses it.
+The brain contains neurons, which signal by firing brief electrical pulses
+called spikes, and it contains a similar number of non-neuronal cells. The most
+common of these are **astrocytes**.
+
+Astrocytes were long assumed to be purely supportive. There is now evidence
+that they participate in signalling. The mechanism modelled here works as
+follows.
+
+A **synapse** is a connection between two neurons: a presynaptic neuron that
+sends, and a postsynaptic neuron that receives. An astrocyte can sit at a
+synapse and take part in it, making the connection three-party rather than two.
+This is called **tripartite** connectivity.
+
+When the presynaptic neuron fires, the astrocyte responds. A molecule called
+IP3 accumulates inside it, and IP3 opens channels on an internal calcium store.
+Calcium floods into the cell body. The release is self-reinforcing, because
+calcium opens further channels, so it arrives in slow waves lasting seconds
+rather than tracking the input directly.
+
+When that calcium passes a threshold, the astrocyte injects a current into the
+**postsynaptic** neuron of the same synapse. This current is called a **slow
+inward current**, or SIC.
+
+The loop is therefore closed: neurons drive astrocytes, and astrocytes drive
+neurons back on a much slower timescale. The question the simulator exists to
+answer is whether this loop changes what the neuronal population does
+collectively.
+
+The model comes from Jiang et al. (2025), PLOS Computational Biology 21(9):
+e1013503. The original implementation is Python running on the NEST simulator.
+This is an independent implementation in C++ with no simulator dependency,
+written to make the model easier to move onto GPU hardware.
+
+---
+
+## Reading order
+
+The files below are listed in the order that makes them easiest to follow. Each
+section describes what the file contains and explains the design decisions that
+the code does not make obvious on its own.
+
+---
+
+## 1. Core types — `include/astrosimgpu/types.hpp`
+
+45 lines, and everything else depends on it.
 
 ```cpp
 using real = double;
@@ -19,93 +64,104 @@ using index_t = std::uint32_t;
 template <typename T> using vec = std::vector<T>;
 ```
 
-**The idea:** `real` is a single alias. Changing it to `float` switches the
-entire simulator to single precision without touching a line of model code.
-That is why the models never write `double` anywhere.
+`real` is defined once. No model code writes `double` directly, so the entire
+simulator can be switched to single precision by editing this one line. Whether
+single precision is sufficient for these equations is an open question, and
+this arrangement makes it cheap to test.
 
-`TimeGrid` holds the two time scales that matter:
+`TimeGrid` separates two different time scales:
 
-- `dt` is the **communication step**, 0.1 ms. Spikes are delivered on this
-  grid and it is what the reference model calls the resolution.
-- `substeps` divides `dt` for integration. `h() = dt / substeps` is the actual
-  RK4 step.
+| | meaning | typical value |
+|---|---|---|
+| `dt` | the **communication step**: how often cells exchange signals | 0.1 ms |
+| `substeps` | how many integration steps are taken within one `dt` | 1 |
 
-The distinction is the whole reason `substeps` exists: you can refine the
-numerics without changing how often cells talk to each other.
+The integration step is `dt / substeps`. Keeping these separate means the
+numerical accuracy can be refined without changing how often cells communicate,
+which are otherwise easy to confuse.
 
 ---
 
-## 2. `include/astrosimgpu/rng.hpp` — 145 lines
+## 2. Random numbers — `include/astrosimgpu/rng.hpp`
 
-**The idea: no random number generator has any state.**
+145 lines, and the design is unusual enough to explain.
 
-A conventional generator holds an internal state word and advances it on every
-draw. Two threads sharing one would race; giving each thread its own means the
-results depend on how work was scheduled.
+A conventional random number generator stores an internal state and advances it
+with each draw. That creates a problem in parallel code. If several threads
+share one generator they interfere with each other, and if each thread has its
+own then the results depend on how work happened to be divided between them.
 
-Here every draw is a pure function:
+This generator stores nothing. Every value is computed directly from three
+numbers:
 
 ```cpp
 inline real rng_uniform(seed, stream, counter);
 ```
 
-Cell 47 at step 900 computes its own noise from `(seed, 47, 900)` and gets the
-same answer no matter which thread runs it, in what order, or whether it runs
-on a GPU. Reproducibility comes from the arithmetic rather than from
-discipline.
+Cell 47 at timestep 900 derives its input from `(seed, 47, 900)`. It obtains
+the same value regardless of which thread performs the calculation, in what
+order, or whether the calculation happens on a CPU or a GPU. Reproducibility
+is a consequence of the arithmetic rather than something that has to be
+maintained.
 
-`CounterRng` is a convenience wrapper that increments the counter for you. The
-free functions exist because a GPU kernel cannot easily carry an object across
-the host boundary. A test pins the two to agree bit for bit — if they ever
-diverge, an offloaded run silently stops matching the host run it is validated
-against.
+`CounterRng` is a convenience class that advances the counter automatically.
+The free functions exist alongside it because GPU code cannot easily use an
+object that lives on the host. A test verifies that both produce identical
+values; if they were ever to diverge, a GPU run would quietly stop matching the
+CPU run used to validate it.
 
-`normal()` uses Box-Muller and keeps the second variate, so two calls cost one
-pair of transcendentals rather than two.
-
----
-
-## 3. `include/astrosimgpu/parameters.hpp` — 197 lines
-
-Plain structs, one per group: `AstrocyteParams`, `NeuronParams`, `SynapseParams`,
-`ConnectivityParams`, `InputParams`, `ModelConfig`.
-
-Every field has its default from NEST written in. Read this file when you want
-to know what a parameter means; the comments carry the units and the source.
-
-Nothing clever here. `src/parameters.cpp` fills these from JSON, and a key
-absent from a configuration file keeps its compiled-in default — which is why
-`config/quick.json` can be twenty lines.
+Normally distributed values use the Box-Muller transform, which produces two at
+a time. The second is retained, so two consecutive requests cost one pair of
+expensive function calls rather than two.
 
 ---
 
-## 4. `include/astrosimgpu/astrocyte.hpp` and `src/astrocyte.cpp` — the science, part one
+## 3. Parameters — `include/astrosimgpu/parameters.hpp`
 
-**The data layout is the thing to understand.**
+Plain data structures, one group per model component: astrocyte, neuron,
+synapse, connectivity, input.
 
-The obvious design is one struct per cell:
+Every field carries its default value and a comment giving its units and its
+source. This file is the reference for what any parameter means.
+
+Configuration files are JSON and need only list the values they change;
+anything omitted keeps the default compiled in here. `src/parameters.cpp`
+performs the translation.
+
+---
+
+## 4. The astrocyte model — `astrocyte.hpp`, `astrocyte.cpp`, `astrocyte_kernel.hpp`
+
+### How cell data is stored
+
+The conventional approach groups each cell's variables together:
 
 ```cpp
 struct Astrocyte { real Ca, IP3, h, Ca_tot, ...; };
-vec<Astrocyte> cells;              // array of structures
+vec<Astrocyte> cells;
 ```
 
-This code does the opposite:
+This code stores each variable in its own array instead:
 
 ```cpp
-vec<real> Ca_, IP3_, h_;           // structure of arrays
+vec<real> Ca_, IP3_, h_;
 vec<real> Ca_tot_, IP3_0_, tau_IP3_, delta_IP3_;
 ```
 
-Why it matters: when the update loop reads every cell's calcium in turn, the
-second layout walks one contiguous array. The first walks a stride of nine
-doubles and drags six values it does not need into cache with each one. On a
-GPU it is the difference between a coalesced load and a scattered one.
+The reason concerns memory access. When the update loop reads the calcium
+concentration of every cell in turn, the second arrangement walks straight
+through one continuous block of memory. The first jumps forward by the size of
+a whole cell each time, and loads six unneeded values into cache alongside each
+one that is wanted.
 
-Everything else follows from this choice, including how straightforward the
-offload turned out to be.
+On a CPU this affects how well the loop vectorises. On a GPU it determines
+whether neighbouring threads read neighbouring addresses, which is the
+difference between one memory transaction and many. Most other decisions in
+this codebase follow from this one.
 
-**The model.** Three coupled ODEs per cell, Li-Rinzel:
+### The equations
+
+Three coupled differential equations per cell, following Li and Rinzel (1994):
 
 ```
 d[Ca]/dt  = J_channel - J_pump + J_leak + noise
@@ -113,22 +169,25 @@ d[IP3]/dt = ([IP3]_0 - [IP3]) / tau_IP3
 dh/dt     = alpha_h (1 - h) - beta_h h
 ```
 
-`J_channel` releases calcium from the endoplasmic reticulum through IP3
-receptors. `J_pump` is SERCA pumping it back. `J_leak` is passive. The
-regenerative part — calcium opening more channels — is why transients come as
-slow waves rather than following the input.
+`J_channel` is calcium released from the internal store through IP3-controlled
+channels. `J_pump` is calcium actively returned to the store. `J_leak` is
+passive flow between the two. The variable `h` tracks what fraction of the
+channels remain available, since calcium eventually closes them.
 
-Two details that look like bugs and are not:
+Two details are easily mistaken for errors:
 
-- **`Ca` is clamped to `[0, Ca_tot]` after each substep.** Total calcium is
-  conserved between cytosol and store, so this is a property of the model, not
-  a guard against the integrator. It is also what stops additive noise from
-  producing a negative concentration.
-- **Synaptic input is applied once at the top of the step, not inside the RK4
-  loop.** Spikes are delta functions in the IP3 equation, so they are an
-  instantaneous jump rather than a term in the derivative.
+**Calcium is clamped to `[0, Ca_tot]` after every integration step.** This is
+not a safeguard against the integrator. Total calcium is conserved between the
+cell body and its internal store, so the concentration in one is bounded by the
+total. The clamp also prevents random fluctuations from producing a negative
+concentration, which would be meaningless.
 
-**`sic_factor(a)`** is the astrocyte's output:
+**Synaptic input is applied once at the start of a step, outside the
+integration loop.** In this model an arriving spike raises IP3 instantaneously
+rather than contributing to a rate of change, so it is a discrete jump rather
+than a term in the equations.
+
+### The output
 
 ```cpp
 const real y = (Ca_[cell] - p_.SIC_th) * 1000.0;
@@ -136,24 +195,30 @@ if (y <= 1.0) return 0.0;
 return p_.SIC_scale * std::log(y);
 ```
 
-The `* 1000.0` converts µM to nM. The threshold is 1 nM *above* `SIC_th`,
-because `ln y` only turns positive there. Below it the astrocyte is silent.
+The factor of 1000 converts micromolar to nanomolar. The current begins only
+once calcium exceeds the threshold by 1 nM, because the logarithm is negative
+below that point. Otherwise the astrocyte produces nothing.
 
-**`astrocyte_kernel.hpp`** holds `astro_advance` and `astro_derivatives` as free
-functions taking plain scalars — no `this`, no `std::vector`, no reference into
-a class. A member function cannot be offloaded to a GPU, so this separation was
-a prerequisite for the device version, not a style preference. The host loop and
-the device loop call the same function, so they cannot drift apart.
+### Separation for GPU execution
+
+`astrocyte_kernel.hpp` holds the per-cell calculation as free functions taking
+ordinary numbers as arguments, with no reference to any object.
+
+This is a requirement rather than a preference. A C++ member function cannot be
+compiled for a GPU, because it implicitly accesses an object that exists in
+host memory. Extracting the calculation was therefore a precondition for
+running it on a device.
+
+The CPU and GPU paths call the same function, so they cannot drift apart as the
+code changes.
 
 ---
 
-## 5. `include/astrosimgpu/neuron.hpp` and `src/neuron.cpp` — the science, part two
+## 5. The neuron model — `neuron.hpp`, `neuron.cpp`
 
-Same structure-of-arrays layout. Seven state variables per neuron: `V`, `w`,
-and two variables for each of the excitatory and inhibitory conductances, plus
-the astrocytic current.
+The same per-variable array layout. Seven state variables per neuron.
 
-**The membrane equation** is adaptive exponential integrate-and-fire:
+### The membrane equation
 
 ```
 C dV/dt = -g_L (V - E_L) + g_L Delta_T exp((V - V_th)/Delta_T)
@@ -161,147 +226,168 @@ C dV/dt = -g_L (V - E_L) + g_L Delta_T exp((V - V_th)/Delta_T)
 tau_w dw/dt = a (V - E_L) - w
 ```
 
-The exponential term is the spike mechanism: once `V` passes `V_th` it runs
-away, and when it crosses `V_peak` the neuron is declared to have spiked, `V`
-is reset and `w` jumps by `b`.
+`V` is the voltage across the cell membrane. The exponential term produces the
+spike: once the voltage passes a threshold it accelerates upwards, and when it
+reaches a cutoff the neuron is recorded as having fired. The voltage is then
+reset and the adaptation variable `w` is increased, which makes the neuron
+briefly harder to excite again. `I_SIC` is the current arriving from connected
+astrocytes.
 
-**The conductance cascade is the part worth understanding.** An alpha function
+### Synaptic conductances
+
+An arriving spike does not change the voltage directly. It opens ion channels,
+and the resulting conductance rises and falls with a characteristic shape:
 
 ```
 g(t) = W (t/tau) exp(1 - t/tau)
 ```
 
-is not integrated directly. It is generated by two coupled linear variables:
+This is generated by two linear variables per conductance rather than evaluated
+directly. An arriving spike of weight `W` adds `W * e / tau` to the first,
+which then drives the second. The constant `e / tau` is what makes the peak
+conductance equal exactly `W`, one time constant after arrival.
 
-```cpp
-dg_ex -> decays with tau
-g_ex  -> driven by dg_ex, decays with tau
-```
+That constant is easy to get wrong, and getting it wrong scales every synapse
+in the network by a fixed factor while leaving everything else looking
+plausible. A test checks it specifically.
 
-and a spike of weight `W` adds `W * e / tau` to `dg_ex`. That constant is what
-makes the peak conductance come out at exactly `W`, one `tau` after the spike
-arrives. A test checks this, because getting it wrong scales every synapse in
-the network by a constant and nothing else looks wrong.
-
-**These two variables are propagated exactly, not through RK4.** They are
-linear and independent of `V`, so the analytic solution is available and
-cheaper. Only `V` and `w` go through the Runge-Kutta stages.
+These two variables are advanced using their exact analytic solution rather
+than the numerical integrator, because they are linear and do not depend on the
+voltage. Only the voltage and the adaptation variable require numerical
+integration.
 
 ---
 
-## 6. `include/astrosimgpu/network.hpp` and `src/network.cpp` — the machinery
+## 6. The network — `network.hpp`, `network.cpp`
 
-The largest file, and where the three interesting data structures live.
+The largest file. Three data structures are worth understanding.
 
-### Connections in compressed-row form
+### Connection storage
 
 ```cpp
 struct ConnectionSet {
-    vec<index_t> row_start;   // size = sources + 1
+    vec<index_t> row_start;   // one entry per source, plus one
     vec<index_t> target;
     vec<real> weight;
     vec<int> delay_steps;
 };
 ```
 
-Source `s` owns targets `target[row_start[s] .. row_start[s+1])`. Delivering
-one neuron's spike walks a contiguous run. There are four of these sets:
-excitatory neuron to neuron, inhibitory neuron to neuron, neuron to astrocyte,
-and astrocyte to neuron.
+The connections leaving source `s` occupy positions `row_start[s]` up to
+`row_start[s+1]` in the other arrays. Delivering one cell's output therefore
+reads a continuous stretch of memory. This is a standard sparse matrix format,
+usually called compressed row storage.
 
-### Ring buffers instead of an event queue
+There are four such sets: excitatory neuron to neuron, inhibitory neuron to
+neuron, neuron to astrocyte, and astrocyte to neuron.
 
-Delays are handled without sorting anything:
+### Transmission delays
+
+Signals take time to arrive. Rather than maintaining a sorted queue of pending
+events, the simulator uses circular buffers:
 
 ```cpp
 vec<vec<real>> ring_exc_, ring_inh_, ring_sic_, ring_astro_;
 ```
 
-Indexed `[slot][cell]`, where `slot = step % ring_slots_`. A spike emitted at
-step `t` with delay `d` steps is added into slot `(t + d) % slots`. When the
-loop reaches step `t + d`, that slot is read and cleared.
+Each is indexed by `[slot][cell]`. A signal emitted at step `t` with a delay of
+`d` steps is added into slot `(t + d) % number_of_slots`. When the simulation
+reaches step `t + d`, that slot is read and cleared.
 
-No priority queue, no sorting, no allocation during the run. The buffers are
-small because delays are short — `ring_slots_` is the longest delay in steps
-plus one.
+Nothing is sorted, nothing is allocated during the run, and adding a pending
+signal costs one addition. The buffers stay small because the number of slots
+only needs to cover the longest delay in the network.
 
-There are four rings because excitatory and inhibitory conductances cannot be
-summed into one number, and the astrocytic current is continuous rather than
-event driven.
+Four separate buffers are needed because excitatory and inhibitory conductances
+cannot be combined into a single number, and the astrocytic current is
+continuous rather than arriving as discrete events.
 
-### Tripartite connectivity
+### Building tripartite connectivity
 
-`build_primary_connections` does three things in order:
+`build_primary_connections` proceeds in three stages:
 
-1. **Assign each postsynaptic neuron a pool of astrocytes.** Either a
-   contiguous block or a random sample without replacement, fixed for the run.
-2. **Draw neuron-to-neuron connections** pairwise Bernoulli at `p_primary`.
-3. **For each connection drawn, recruit an astrocyte** with probability
-   `p_third_if_primary`, from that postsynaptic neuron's pool. Recruiting
-   creates two further connections: presynaptic neuron to astrocyte, and
-   astrocyte to postsynaptic neuron.
+1. **Each postsynaptic neuron is assigned a pool of astrocytes** that it may
+   later connect to. The pool is either a contiguous block or a random sample,
+   and it is fixed for the run.
+2. **Neuron-to-neuron connections are drawn**, each with independent
+   probability `p_primary`.
+3. **Each connection may then recruit an astrocyte** from the postsynaptic
+   neuron's pool, with probability `p_third_if_primary`. Recruitment creates
+   two further connections: from the presynaptic neuron to the astrocyte, and
+   from the astrocyte back to the postsynaptic neuron.
 
-**Duplicates are kept deliberately.** If a neuron receives several connections
-that each recruit the same astrocyte, it ends up connected to that astrocyte
-several times. The paper is explicit that this represents a neuron interacting
-with one astrocyte at several synapses, and it sets the scale of the current
-the neuron receives — with the default parameters, about sixteenfold.
+When a neuron receives several connections that each recruit the same
+astrocyte, it becomes connected to that astrocyte several times. These
+duplicates are kept deliberately. The original paper states that they represent
+a neuron interacting with one astrocyte at several separate synapses, and they
+determine the strength of the current the neuron receives. With the default
+parameters a neuron is connected to its astrocyte around sixteen times.
 
-### The time loop
+### The simulation loop
 
-`Network::run` is the heart of the program. Each step:
+`Network::run` advances the simulation. Each step performs six operations:
 
-1. `apply_arrivals` — move whatever the ring buffers hold for this step into
-   the cells
-2. `drive_astrocytes` — background Poisson input
-3. `astro_.update` — integrate the astrocytes
-4. `neurons_.update` — integrate the neurons, collect spikes
-5. `deliver_spikes` — route spikes into ring buffers, applying short-term
-   plasticity
-6. `deliver_sic` — route astrocytic current into ring buffers
+1. Move signals whose delay has elapsed from the circular buffers into the
+   cells
+2. Generate background input for the astrocytes
+3. Integrate the astrocytes
+4. Integrate the neurons and collect any spikes
+5. Place emitted spikes into the buffers, adjusting weights for short-term
+   synaptic changes
+6. Place astrocytic currents into the buffers
 
-Each phase is timed separately, using the same decomposition as the reference
-benchmarks so profiles can be compared.
+Each operation is timed separately. The categories match those used in the
+benchmarks of the original paper, so profiles from the two implementations can
+be compared directly.
 
-**Two loops are restricted to what the connectivity reaches.** `sic_sources_`
-and `astro_input_sinks_` are built once. Without them these phases scan the
-whole population every step looking for the few cells that matter, which at ten
-million astrocytes was three quarters of the run.
-
----
-
-## 7. `src/analysis.cpp` — 222 lines
-
-Detects calcium transients by threshold crossing, merges ones separated by less
-than a configurable gap, then computes the mean pairwise Pearson correlation
-between transient onset times across the population.
-
-The merging exists because noise around the threshold splits one physical
-transient into several detected ones, which biases both the count and the
-durations.
-
-This is the file that produces the number the whole model is judged by.
+Two of these operations use precomputed index lists rather than examining every
+cell. Only astrocytes that the connectivity actually reaches can participate,
+and which ones those are is fixed when the network is built. Scanning the whole
+population instead becomes the dominant cost in large networks where most
+astrocytes are unconnected.
 
 ---
 
-## 8. Infrastructure you can skip
+## 7. Analysis — `src/analysis.cpp`
 
-- `src/json.cpp`, 335 lines. A JSON parser, in-tree so the build needs no
-  dependencies. Read only if it breaks.
-- `src/recorder.cpp`. Writes CSV.
-- `src/main.cpp`. Argument parsing and report formatting.
-- `src/parameters.cpp`. JSON to structs.
+Identifies calcium events by finding where the concentration crosses a
+threshold, then measures how similar their timing is across the population
+using pairwise correlation.
+
+Events separated by less than a configurable interval are merged into one.
+Without this, random fluctuation around the threshold splits a single physical
+event into several detected ones, which distorts both the count and the
+measured durations.
+
+This file produces the quantity used to judge whether astrocytes are acting
+independently or together.
 
 ---
 
-## 9. The GPU offload
+## 8. Supporting code
 
-Three pieces, all in `src/astrocyte.cpp` and `astrocyte_kernel.hpp`:
+These files contain no model logic and can be left until needed.
 
-**The kernel functions** take plain scalars, so they can be compiled for the
-device. Marked with `#pragma omp declare target`.
+| File | Purpose |
+|---|---|
+| `src/json.cpp` | JSON parser, included in the source tree so the build has no external dependencies |
+| `src/recorder.cpp` | Writes results as CSV |
+| `src/main.cpp` | Command line handling and report formatting |
+| `src/parameters.cpp` | Converts JSON into the parameter structures |
 
-**The loop directive** switches between host and device:
+---
+
+## 9. GPU execution
+
+The astrocyte update can run on an NVIDIA GPU through OpenMP target offload.
+This is enabled by a build flag and is off by default.
+
+Three pieces make it work.
+
+**The calculation is available as free functions** in `astrocyte_kernel.hpp`,
+marked so the compiler generates a device version.
+
+**One directive selects where the loop runs:**
 
 ```cpp
 #ifdef ASTROSIMGPU_OFFLOAD
@@ -311,27 +397,29 @@ device. Marked with `#pragma omp declare target`.
 #endif
 ```
 
-The loop body is identical. Only the directive above it changes.
+The body of the loop is identical in both cases. Only the directive changes.
 
-**Residency.** `device_begin` places the state on the device with
-`omp target enter data` for the whole run. OpenMP map is reference counted, so
-the per-step `map` clauses then find the arrays present and move nothing. Two
-transfers remain each step: input goes to the device, calcium comes back
-because `deliver_sic` reads it on the host.
+**Data stays on the device.** `device_begin` transfers the astrocyte state to
+the GPU once at the start of a run. OpenMP tracks what is already present, so
+the per-step transfer clauses then find the data there and move nothing. Two
+transfers remain each step: input travels to the device, and calcium returns,
+because the current delivery step reads it on the host.
+
+Measured performance and the remaining work are recorded in
+`docs/gpu-port.md`.
 
 ---
 
-## Suggested exercises
+## Verifying an understanding of the code
 
-The fastest way to own this code is to break it deliberately and watch the
-tests catch you.
+A quick way to confirm that a particular mechanism has been understood is to
+change it deliberately and observe which test detects the change.
 
-1. In `neuron.cpp`, change `psc_init` from `e / tau` to `1 / tau`. Run
-   `make test`. The alpha conductance check fails and tells you the peak
-   conductance is wrong by a factor of e.
-2. Remove the calcium clamp in `astro_advance`. The bounds test fails.
-3. Set `connectivity.unique_third_out` to `true` in `config/bursting.json`.
-   The network stops synchronising, because the SIC is divided by sixteen.
-4. Change `real` to `float` in `types.hpp`. Everything builds. Compare the
-   regime transition against `docs/validation.md` — this is experiment 6 and
-   the answer is not known yet.
+| Change | Expected result |
+|---|---|
+| In `neuron.cpp`, change `psc_init` from `e / tau` to `1 / tau` | The conductance test fails, reporting a peak too small by a factor of e |
+| Remove the calcium clamp in `astro_advance` | The bounds test fails |
+| Set `connectivity.unique_third_out` to `true` in `config/bursting.json` | The network no longer synchronises, because the astrocytic current is divided by the number of duplicate connections |
+| Change `real` to `float` in `types.hpp` | Everything still builds. Whether the results remain correct has not been established |
+
+Run `make test` after each.
