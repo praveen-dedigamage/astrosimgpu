@@ -28,6 +28,12 @@ set -uo pipefail
 
 module load nvhpc/26.3
 
+# Pin threads for every backend, not just the one that complains about it.
+# Kokkos warns when this is unset; the other two do not, and an unpinned host
+# baseline against a pinned one would make the device look better than it is.
+export OMP_PROC_BIND=spread
+export OMP_PLACES=threads
+
 SIZES="${SIZES:-1000 40000 1000000}"
 PRE=${PRE:-100}
 SIM=${SIM:-500}
@@ -39,6 +45,7 @@ declare -a BINS=("build-cpu/astrosimgpu" "build-gpu/astrosimgpu" "build-kokkos/a
 echo "host   : $(hostname)   cores: $(nproc)"
 nvidia-smi --query-gpu=name --format=csv,noheader || true
 echo "steps  : $STEPS measured"
+echo "binding: OMP_PROC_BIND=$OMP_PROC_BIND OMP_PLACES=$OMP_PLACES"
 echo
 
 for i in 0 1 2; do
