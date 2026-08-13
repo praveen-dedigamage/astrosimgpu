@@ -78,9 +78,11 @@ The default build is CPU-only and needs nothing but a C++17 compiler.
 
 An OpenMP target offload of the astrocyte update exists behind a build flag
 that is off by default. It has been built with NVHPC and run on an NVIDIA
-GH200, where it produces results identical to the host build. It is faster than
-72 Grace cores above about 40,000 astrocytes, reaching 5.6x at ten million, and
-slower below that. See "GPU offload" below and `docs/gpu-port.md`.
+GH200, where it produces results identical to the host build. On the astrocyte
+update alone it is faster than 72 Grace cores above about 40,000 astrocytes,
+reaching 5.6x at ten million, and slower below that. That is one phase of the
+simulation measured with the connectivity held almost constant; see "GPU
+offload" below for what it does and does not establish.
 
 ## Why a second implementation
 
@@ -159,7 +161,7 @@ Command line options:
 | `config/random_pool.json` | Random astrocyte pools of five, lower recruitment probability, larger SIC weight. |
 | `config/scale_1000.json` | Ten times larger, in-degree held constant so the regime is preserved. |
 | `config/scale_1000_saturated.json` | Ten times larger with the connection probability fixed, so the network saturates. A throughput probe, not a model. |
-| `config/kernel_scaling.json` | Fixed neurons, astrocyte count set with `--astrocytes`. For measuring kernel throughput. |
+| `config/kernel_scaling.json` | Fixed neuron population, astrocyte count set with `--astrocytes`. Isolates kernel throughput; most astrocytes are unconnected at large counts, so it measures one phase rather than a network. |
 | `config/paper_sparse.json` | The reference "Sparse" benchmark model. Reproduces the published mean firing rate to 0.33 %. |
 | `config/quick.json` | Small and short. For checking a build only. |
 
@@ -235,6 +237,55 @@ The device's 28 microsecond fixed cost is three device operations per step: the
 input transfer, the kernel launch, and the calcium transfer back. Removing the
 two transfers, by moving SIC delivery onto the device as well, would leave the
 launch alone and should bring the crossover down to roughly ten thousand.
+
+### What this measurement does not cover
+
+**Connectivity was held almost constant across the whole sweep.** The
+configuration fixes the neuron population at 500, so every run from 100 to ten
+million astrocytes had about 7,900 tripartite attachments. In the largest runs
+almost every astrocyte was connected to nothing and simply integrated.
+
+That was deliberate. It isolates the cost of the astrocyte update so the kernel
+can be measured against the host without the delivery phases confounding it.
+But it means the figures above describe **one phase of the simulation, not the
+simulation**. A run of ten million connected astrocytes would not be 5.6 times
+faster; only its update phase would be.
+
+How much that matters depends on how the network is scaled, and the two
+plausible choices disagree completely. At 1000 astrocytes and 5000 neurons on
+the same hardware:
+
+| | fixed connection probability | fixed in-degree |
+|---|---|---|
+| synapses | 5.0 M | 500 k |
+| both update phases | 4.0 % | 97.6 % |
+| delivery phases | 96.0 % | 2.4 % |
+
+Under the first, offloading the update addresses 4 % of the run and caps the
+achievable speedup near 1.04x. Under the second it addresses almost all of it.
+
+At the scale this work is ultimately aimed at, the delivery phases are the
+harder problem by a wide margin. Estimates put the human brain at 5 to 10 x
+10^10 astrocytes. Spread over an exascale machine of order 10^4 GPUs that is a
+few million astrocytes each, which the measurements above cover. The
+connectivity is not covered:
+
+```
+synapses            ~ 10^11 neurons x 10^4 in-degree   = 10^15
+tripartite attachments, at p_third ~ 0.5               = 5 x 10^14
+per GPU, over ~2.4 x 10^4 GPUs                         ~ 2 x 10^10
+at roughly 40 bytes per connection                     ~ 800 GB
+```
+
+Against 96 GB of device memory, before any cell state. Connectivity at that
+scale cannot be stored on the device and would have to be regenerated from the
+seed on demand, which the counter-based random numbers make possible in
+principle but which nothing here does today.
+
+So the kernel result is necessary and not sufficient. The open question is not
+how fast the astrocyte update can be made, but what the continuous
+astrocyte-to-neuron coupling costs when the connectivity is realistic.
+`docs/experiments.md` sets out the experiment that would answer it.
 
 Keeping the state resident on the device rather than mapping it every step is
 what made these figures possible. Before that change the device cost 522
