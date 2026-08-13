@@ -109,6 +109,7 @@ std::string format_summary(const Network& net, const NetworkStats& s, double wal
                << seconds << std::setw(11) << seconds * pct << "\n";
             os << std::left;
         };
+        row("background input", p.input_gen);
         row("update astrocytes", p.update_astro);
         row("update neurons", p.update_neuron);
         row("spike delivery", p.spike_cd);
@@ -124,7 +125,7 @@ std::string format_summary(const Network& net, const NetworkStats& s, double wal
         // The per-cell update is the part that parallelises; the delivery
         // phases are the part that carries communication. Their ratio is what
         // decides whether offloading the update is worth the trouble.
-        const double update = p.update_astro + p.update_neuron;
+        const double update = p.input_gen + p.update_astro + p.update_neuron;
         const double comms = p.spike_cd + p.sic_gd + p.deliver;
         if (comms > 0.0) {
             os << "update : communication " << update / comms << " : 1\n";

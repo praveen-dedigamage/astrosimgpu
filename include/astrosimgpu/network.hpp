@@ -36,6 +36,7 @@ struct ConnectionSet {
 /// benchmarks, so a profile from this simulator can be read against the
 /// published CPU numbers:
 ///
+///   input_gen   drawing the background input for every cell
 ///   update      advancing the dynamical state of every cell
 ///   spike_cd    collocation and delivery of spikes
 ///   sic_gd      gathering and delivery of the astrocytic current
@@ -46,6 +47,7 @@ struct ConnectionSet {
 /// communication that does not, and knowing the ratio between them is what
 /// decides where an offload is worth attempting.
 struct PhaseProfile {
+    double input_gen = 0.0;
     double update_astro = 0.0;
     double update_neuron = 0.0;
     double spike_cd = 0.0;
@@ -54,7 +56,7 @@ struct PhaseProfile {
     double total = 0.0;
 
     [[nodiscard]] double accounted() const {
-        return update_astro + update_neuron + spike_cd + sic_gd + deliver;
+        return input_gen + update_astro + update_neuron + spike_cd + sic_gd + deliver;
     }
     [[nodiscard]] double other() const { return total - accounted(); }
 };

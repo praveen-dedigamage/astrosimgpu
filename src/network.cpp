@@ -386,9 +386,18 @@ void Network::run(Recorder& recorder) {
 
         auto t = clock::now();
         apply_arrivals(step);
-        drive_astrocytes(step);
         if (measured) {
             profile_.deliver += tick(t);
+        }
+
+        // Generating the background input is per-cell work with no
+        // communication in it, so it is timed apart from delivery. Counting it
+        // as delivery overstated the communication cost by an order of
+        // magnitude at large populations.
+        t = clock::now();
+        drive_astrocytes(step);
+        if (measured) {
+            profile_.input_gen += tick(t);
         }
 
         t = clock::now();
