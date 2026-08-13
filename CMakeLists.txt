@@ -36,7 +36,13 @@ target_include_directories(astrosimgpu_core PUBLIC
 if(MSVC)
   target_compile_options(astrosimgpu_core PRIVATE /W4)
 else()
-  target_compile_options(astrosimgpu_core PRIVATE -Wall -Wextra -Wpedantic)
+  # Kokkos CUDA builds compile through nvcc or nvcc_wrapper, which reject some
+  # of these and emit a great deal of noise for the rest.
+  if(ASTROSIMGPU_KOKKOS)
+    target_compile_options(astrosimgpu_core PRIVATE -Wall)
+  else()
+    target_compile_options(astrosimgpu_core PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
   if(ASTROSIMGPU_NATIVE)
     include(CheckCXXCompilerFlag)
     check_cxx_compiler_flag("-march=native" HAVE_MARCH_NATIVE)
@@ -63,7 +69,15 @@ if(ASTROSIMGPU_KOKKOS)
   find_package(Kokkos REQUIRED)
   target_compile_definitions(astrosimgpu_core PUBLIC ASTROSIMGPU_KOKKOS)
   target_link_libraries(astrosimgpu_core PUBLIC Kokkos::kokkos)
-  message(STATUS "Kokkos backend enabled: ${Kokkos_DEVICES}")
+  # Which device this targets was decided when Kokkos was built, not here.
+  message(STATUS "Kokkos devices: ${Kokkos_DEVICES}")
+  message(STATUS "Kokkos arch:    ${Kokkos_ARCH}")
+  if(Kokkos_ENABLE_CUDA)
+    # A lambda passed to parallel_for becomes a __device__ lambda, which nvcc
+    # only accepts with this enabled. Kokkos usually sets it; assert it rather
+    # than discover it in a wall of template errors.
+    kokkos_check(OPTIONS CUDA_LAMBDA)
+  endif()
 endif()
 
 if(ASTROSIMGPU_OFFLOAD)
