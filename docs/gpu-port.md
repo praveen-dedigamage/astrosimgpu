@@ -178,7 +178,8 @@ device  ~ 28 us + 0.133 ns per astrocyte
 host    ~  4 us + 0.762 ns per astrocyte
 ```
 
-The marginal figures repeat across every decade measured, so the kernel is
+The marginal figures hold from ten thousand astrocytes to ten million, so the
+kernel is
 **5.7 times cheaper per astrocyte** than the host. The measured ratio at ten
 million is 5.6, which is that asymptote reached rather than approached.
 

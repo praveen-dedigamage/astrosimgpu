@@ -221,7 +221,7 @@ device  ~ 28 us + 0.133 ns per astrocyte
 host    ~  4 us + 0.762 ns per astrocyte
 ```
 
-The marginal figures are consistent across every decade measured, so the
+The marginal figures hold from ten thousand astrocytes to ten million, so the
 kernel itself is **5.7 times cheaper per astrocyte** than 72 Grace cores. At ten
 million the measured ratio is 5.6, which is that asymptote reached.
 
