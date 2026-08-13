@@ -1,0 +1,23 @@
+# Astrocyte update cost per timestep, microseconds.
+#
+# One GH200 node on CSC's Roihu. Host is 72 Grace cores. Every column comes
+# from the same build of the same source; only the dispatch differs.
+#
+# Measured with scripts/roihu/kernel_scaling.sbatch and
+# scripts/roihu/three_way.sbatch. The configuration fixes the neuron
+# population, so connectivity is near-constant across the sweep and most
+# astrocytes are unconnected at large counts: this is one phase of the
+# simulation, not a whole simulation.
+#
+# host and openmp_target were measured without thread pinning. kokkos and any
+# re-measurement use OMP_PROC_BIND=spread, which is recorded per row in
+# `pinned` because an unpinned host baseline flatters the device.
+#
+astrocytes,host_us,openmp_target_us,kokkos_us,pinned
+100,4.0,28.0,,no
+1000,5.1,29.3,,no
+10000,13.0,31.7,,no
+40000,36.0,36.2,,no
+100000,80.6,45.2,,no
+1000000,805.1,169.2,,no
+10000000,7666.1,1370.8,,no

@@ -92,6 +92,9 @@ private:
     using DeviceArray = Kokkos::View<real*>;
     DeviceArray d_Ca_, d_IP3_, d_h_, d_ip3_input_;
     DeviceArray d_Ca_tot_, d_IP3_0_, d_tau_IP3_, d_delta_IP3_;
+    /// Host mirrors for the two arrays that cross the boundary every step,
+    /// allocated once rather than per call.
+    DeviceArray::HostMirror m_Ca_, m_ip3_input_;
     bool device_ready_ = false;
 #endif
 

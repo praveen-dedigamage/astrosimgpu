@@ -93,6 +93,9 @@ void AstrocytePopulation::device_begin() {
     d_IP3_0_ = to_device("IP3_0", IP3_0_);
     d_tau_IP3_ = to_device("tau_IP3", tau_IP3_);
     d_delta_IP3_ = to_device("delta_IP3", delta_IP3_);
+    // Reused every step; see device_push_input.
+    m_Ca_ = Kokkos::create_mirror_view(d_Ca_);
+    m_ip3_input_ = Kokkos::create_mirror_view(d_ip3_input_);
     device_ready_ = true;
     return;
 #endif
@@ -149,11 +152,13 @@ void AstrocytePopulation::device_end() {
 void AstrocytePopulation::device_push_input() {
 #if defined(ASTROSIMGPU_KOKKOS)
     if (device_ready_) {
-        auto mirror = Kokkos::create_mirror_view(d_ip3_input_);
+        // The mirrors are allocated once in device_begin. create_mirror_view
+        // allocates on every call, and calling it twice per timestep costs far
+        // more than the transfer it exists to perform.
         for (std::size_t i = 0; i < ip3_input_.size(); ++i) {
-            mirror(i) = ip3_input_[i];
+            m_ip3_input_(i) = ip3_input_[i];
         }
-        Kokkos::deep_copy(d_ip3_input_, mirror);
+        Kokkos::deep_copy(d_ip3_input_, m_ip3_input_);
     }
     return;
 #endif
@@ -170,7 +175,10 @@ void AstrocytePopulation::device_push_input() {
 void AstrocytePopulation::device_pull_calcium() {
 #if defined(ASTROSIMGPU_KOKKOS)
     if (device_ready_) {
-        from_device(d_Ca_, Ca_);
+        Kokkos::deep_copy(m_Ca_, d_Ca_);
+        for (std::size_t i = 0; i < Ca_.size(); ++i) {
+            Ca_[i] = m_Ca_(i);
+        }
     }
     return;
 #endif
@@ -292,6 +300,17 @@ void AstrocytePopulation::update(const TimeGrid& time, std::int64_t step, std::u
         hv[i] = h;
         ip3_in[i] = 0.0;
     }
+
+#ifdef ASTROSIMGPU_OFFLOAD
+    // The loop above zeroed the device copy, but with the arrays resident the
+    // map clauses move nothing, so that zero never reaches the host. Without
+    // this the host array accumulates every arrival for the whole run: IP3
+    // grows without bound, every astrocyte saturates, and the network reports
+    // a pairwise correlation of exactly one.
+    for (std::int64_t i = 0; i < n; ++i) {
+        ip3_in[i] = 0.0;
+    }
+#endif
 }
 
 real AstrocytePopulation::sic_factor(index_t cell) const {
