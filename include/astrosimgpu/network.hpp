@@ -122,6 +122,16 @@ private:
     vec<vec<real>> ring_exc_, ring_inh_, ring_sic_, ring_astro_;
     int ring_slots_ = 1;
 
+    /// Astrocytes that can take part in the delivery phases at all.
+    ///
+    /// Both lists are fixed by the connectivity and are built once. Without
+    /// them the delivery loops scan the whole population every step to find
+    /// the few cells that matter: at ten million astrocytes with eight
+    /// thousand connections that was three quarters of the run time, and it
+    /// scaled with the population rather than with the connectivity.
+    vec<index_t> sic_sources_;        ///< have at least one outgoing SIC connection
+    vec<index_t> astro_input_sinks_;  ///< are the target of at least one neuron
+
     vec<Spike> spike_buffer_;
 };
 

@@ -78,6 +78,27 @@ void Network::build() {
     max_delay = std::max(max_delay, delay_to_steps(cfg_.syn.d_a2n, dt));
     ring_slots_ = max_delay + 1;
 
+    // The delivery phases only ever touch astrocytes that the connectivity
+    // reaches. Collect them once rather than rediscovering them every step.
+    sic_sources_.clear();
+    for (index_t a = 0; a < cfg_.N.N_astro; ++a) {
+        if (astro_neuron_.row_start[a] < astro_neuron_.row_start[a + 1]) {
+            sic_sources_.push_back(a);
+        }
+    }
+    {
+        vec<char> seen(cfg_.N.N_astro, 0);
+        astro_input_sinks_.clear();
+        for (const index_t t : neuron_astro_.target) {
+            if (!seen[t]) {
+                seen[t] = 1;
+                astro_input_sinks_.push_back(t);
+            }
+        }
+        // Sorted so the scan runs forwards through memory.
+        std::sort(astro_input_sinks_.begin(), astro_input_sinks_.end());
+    }
+
     const index_t n_neurons = neurons_.size();
     ring_exc_.assign(ring_slots_, vec<real>(n_neurons, 0.0));
     ring_inh_.assign(ring_slots_, vec<real>(n_neurons, 0.0));
@@ -264,8 +285,9 @@ void Network::deliver_spikes(const vec<Spike>& spikes, std::int64_t step) {
 }
 
 void Network::deliver_sic(std::int64_t step) {
-    const index_t n_astro = astro_.size();
-    for (index_t a = 0; a < n_astro; ++a) {
+    // Only astrocytes with an outgoing connection can contribute. Everything
+    // else in the population is invisible to the neurons.
+    for (const index_t a : sic_sources_) {
         const real factor = astro_.sic_factor(a);
         if (factor == 0.0) {
             continue;
@@ -301,9 +323,10 @@ void Network::apply_arrivals(std::int64_t step) {
         sic[i] = 0.0;
     }
 
+    // Only astrocytes that some neuron projects to can have a pending entry,
+    // so the scan runs over those rather than over the population.
     vec<real>& astro_in = ring_astro_[slot];
-    const index_t n_astro = astro_.size();
-    for (index_t a = 0; a < n_astro; ++a) {
+    for (const index_t a : astro_input_sinks_) {
         if (astro_in[a] != 0.0) {
             astro_.add_ip3_input(a, astro_in[a]);
             astro_in[a] = 0.0;
@@ -350,10 +373,16 @@ void Network::run(Recorder& recorder) {
     auto tick = [](const clock::time_point& since) {
         return std::chrono::duration<double>(clock::now() - since).count();
     };
-    const auto run_start = clock::now();
+    // The recorded window is timed directly. Prorating the whole run by step
+    // count assumes the transient costs the same per step as the rest, which
+    // it does not, and the error showed up as a negative "other" row.
+    auto measured_start = clock::now();
 
     for (std::int64_t step = 0; step < total; ++step) {
         const bool measured = step >= pre_steps;
+        if (step == pre_steps) {
+            measured_start = clock::now();
+        }
 
         auto t = clock::now();
         apply_arrivals(step);
@@ -421,12 +450,7 @@ void Network::run(Recorder& recorder) {
                       << "%\r" << std::flush;
         }
     }
-    // Total is charged to the recorded window only, prorated by step count,
-    // so it is comparable with the per-phase figures above.
-    profile_.total = tick(run_start);
-    if (total > 0) {
-        profile_.total *= static_cast<double>(sim_steps) / static_cast<double>(total);
-    }
+    profile_.total = tick(measured_start);
     std::cout << "  done            " << std::endl;
 }
 
