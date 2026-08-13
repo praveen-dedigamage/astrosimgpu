@@ -153,40 +153,79 @@ bursting regime, unchanged to four decimal places.
 Built with NVHPC 26.3 on `roihu-gpu.csc.fi` and run on one NVIDIA GH200 120GB.
 `-Minfo=mp` reports the target region becoming a GPU kernel, parallelised
 across teams and 128 threads, with device routines generated for
-`astro_advance`, `astro_derivatives`, `rng_bits`, `rng_uniform` and
-`rng_normal`.
+`astro_advance`, `astro_derivatives` and the random number functions.
 
 All 86 component checks pass on the device, and the offloaded run reproduces
 the host result exactly in every configuration tested. The kernel is correct.
 
-Astrocyte update phase only, normalised per timestep:
+Astrocyte update phase only, per timestep, one sweep on one build. Host is 72
+Grace cores built with nvc++.
 
-**These figures predate the residency change and a host compiler change, and
-are kept only as the starting point they were.** They cannot be compared
-directly with the current numbers further down.
-
-| astrocytes | host, 72 Grace cores | offload | |
+| astrocytes | host | device | |
 |---|---|---|---|
-| 100 | 3.1 us/step | 41.2 us/step | host 13x faster |
-| 1000 | 58.4 us/step | 50.4 us/step | device 1.16x faster |
+| 100 | 3.3 us | 23.4 us | host 7.1x |
+| 1,000 | 4.2 us | 24.4 us | host 5.9x |
+| 10,000 | 10.9 us | 26.4 us | host 2.4x |
+| 40,000 | 30.0 us | 30.2 us | even |
+| 100,000 | 67.2 us | 37.6 us | device 1.8x |
+| 1,000,000 | 670.9 us | 141.0 us | device 4.8x |
+| 10,000,000 | 6,388.4 us | 1,142.3 us | device 5.6x |
 
-**The device cost is nearly flat: 41 us for 100 cells, 50 us for 1000.** Ten
-times the work for a fifth more time. That answers experiment 1 for these two
-sizes: the cost is per launch, not per byte. The `map` clauses sit inside the
-per-step update, so each of the run's steps allocates eight arrays on the
-device, copies four in, launches a kernel over a few hundred cells, copies four
-back and frees them. Around 40 microseconds of the 50 is fixed overhead and the
-arithmetic is the remainder.
+Both are linear above ten thousand cells with a fixed per-step cost below it:
 
-The device wins at 1000 astrocytes only because the host got slower. It did not
-get faster.
+```
+device  ~ 23 us + 0.111 ns per astrocyte
+host    ~  3 us + 0.650 ns per astrocyte
+```
 
-One host result is unexplained. Per cell per step, the host cost went from 31
-nanoseconds at 100 astrocytes to 58 at 1000. It should have improved: 100 cells
-across 72 threads is 1.4 cells per thread, which is almost entirely dispatch
-overhead. Getting worse at ten times the size is backwards. Denormal arithmetic
-in the calcium variables and NUMA effects across the Grace cores are both
-plausible and neither has been checked.
+The marginal figures repeat across every decade measured, so the kernel is
+**5.7 times cheaper per astrocyte** than the host. The measured ratio at ten
+million is 5.6, which is that asymptote reached rather than approached.
+
+**The lines cross at about 40,000 astrocytes.** The fit puts it at 37,100 and
+the sweep measures 0.99x at 40,000.
+
+Two earlier statements in this document were wrong and are worth recording as
+such:
+
+- An earlier version reported the device cost as "nearly flat" between 100 and
+  1000 astrocytes and concluded the cost was per launch rather than per byte.
+  The flatness was real but the conclusion was too strong: there is a fixed
+  cost *and* a per-cell cost, and the per-cell one only becomes efficient once
+  the device is occupied, somewhere above ten thousand cells.
+- A crossover of 150,000 was extrapolated from measurements spanning two code
+  versions and two host compilers. Measured properly on one build it is 40,000.
+
+### What residency changed
+
+Before the state was made resident, the device mapped eight arrays on every
+step. At ten million astrocytes that was around 960 MB of traffic per step.
+
+| | before | after |
+|---|---|---|
+| fixed cost per step | 46 us | 23 us |
+| 1,000,000 astrocytes | 435 us | 141 us |
+| 10,000,000 astrocytes | 3,515 us | 1,142 us |
+
+The device improved by very close to 3x at both large sizes. That the factor is
+the same across a tenfold change in population is what identifies the cause as
+per-step transfer rather than anything that scales with the data.
+
+The prediction made before the change was 1,750 us at ten million and a
+speedup of 3.4x. The measurement is 1,142 us and 5.6x, so the mapping had been
+costing more than the estimate allowed.
+
+### What remains
+
+The 23 microsecond fixed cost is three device operations per step: transfer the
+synaptic input across, launch the kernel, transfer calcium back. A launch alone
+is a few microseconds, so the two transfers are most of it.
+
+Removing them means moving SIC delivery onto the device, which is not a small
+change: `deliver_sic` writes into ring buffers indexed by neuron, so the
+question becomes what else has to become resident. If it were done, the fixed
+cost should fall to roughly the launch alone and the crossover with it, to
+somewhere near ten thousand astrocytes.
 
 The neuron update needs the same treatment. It is a larger job because it emits
 spikes, so the per-thread spike collection has to be reworked into something a

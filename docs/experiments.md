@@ -71,6 +71,19 @@ constant. Record `update astrocytes` seconds, divide by step count.
 
 **Cost.** Four short runs, about 15 minutes on `gputest`.
 
+**Result: both, and neither answer alone was right.** There is a fixed cost per
+step, and a per-cell cost that only becomes efficient once the device is
+occupied. Measured on one build after the residency change:
+
+```
+device  ~ 23 us + 0.111 ns per astrocyte
+host    ~  3 us + 0.650 ns per astrocyte
+```
+
+The three outcomes listed above did not include this one. The flat region below
+a thousand cells is the fixed cost showing through; the efficient region above
+ten thousand is the device filling up. The crossover is at about 40,000.
+
 ---
 
 ## 2. Does the host cost scale on Grace?
@@ -163,8 +176,11 @@ as well, because the neuron update has more state and would pay more.
 
 | astrocytes | device before | device after | host | speedup |
 |---|---|---|---|---|
-| 1,000,000 | 435.1 us | 142.9 us | 582.4 us | 4.08x |
-| 10,000,000 | 3,514.9 us | 1,168.7 us | 5,962.4 us | 5.10x |
+| 1,000,000 | 435.1 us | 141.0 us | 670.9 us | 4.76x |
+| 10,000,000 | 3,514.9 us | 1,142.3 us | 6,388.4 us | 5.59x |
+
+The fixed cost per step fell from 46 to 23 microseconds, and the crossover
+population with it, from about 150,000 to about 40,000.
 
 The device improved 3.0x at both sizes. That consistency across a tenfold
 change in population identifies the cause as per-step transfer rather than

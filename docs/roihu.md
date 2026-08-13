@@ -80,7 +80,8 @@ Three things, in order of how much they matter:
    size talking — seven cells per thread — not the hardware.
 
 3. **The phase ratio in the right regime.** The published benchmarks run 20,000
-   cells. The 96.8%-in-update figure comes from 500. The batch script ends with
+   cells, and the share of runtime in the update phase depends strongly on
+   both the population and how the network is scaled. The batch script ends with
    a 20,000-cell run because the ratio that justifies the port should be measured
    at the scale the science actually uses.
 
