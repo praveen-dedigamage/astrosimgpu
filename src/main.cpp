@@ -86,6 +86,14 @@ std::string format_summary(const Network& net, const NetworkStats& s, double wal
     os << "astrocyte -> neuron    " << s.n_astro_to_neuron << "\n";
     os << "\n";
     os << "dt                    " << c.time.dt << " ms (" << c.time.substeps << " substeps)\n";
+    // Recorded because a timing is not interpretable without it. A host figure
+    // quoted as a many-core baseline is worthless if the run was serial, and
+    // nothing else in this file would reveal that.
+#ifdef _OPENMP
+    os << "OpenMP threads        " << omp_get_max_threads() << "\n";
+#else
+    os << "OpenMP threads        1 (built without OpenMP)\n";
+#endif
     os << "transient             " << c.time.pre_sim_time << " ms\n";
     os << "recorded              " << c.time.sim_time << " ms\n";
     os << "seed                  " << c.seed << "\n";

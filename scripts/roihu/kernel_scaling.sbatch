@@ -46,6 +46,12 @@ SIZES="${SIZES:-100 1000 10000 40000}"
 echo "host   : $(hostname)   cores: $(nproc)"
 nvidia-smi --query-gpu=name --format=csv,noheader || true
 echo "steps  : $STEPS   (pre ${PRE}ms + sim ${SIM}ms at dt ${DT}ms)"
+echo "threads: ${SLURM_CPUS_PER_TASK:-72} requested for the host runs"
+# Confirmed rather than assumed: the host figures are quoted as a many-core
+# baseline, and a serial run would produce a plausible-looking number that
+# means something entirely different.
+"$CPU_BIN" --config "$CONFIG" --astrocytes 100 -t 1 -p 0 -o /tmp/threadcheck.$$ 2>/dev/null \
+    | grep -i "openmp threads" || echo "threads: NOT REPORTED -- host build may lack OpenMP"
 echo
 
 printf "%-10s %14s %14s %14s %14s %10s\n" \
