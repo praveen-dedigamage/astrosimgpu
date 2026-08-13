@@ -233,6 +233,9 @@ The restructuring was checked to reproduce the previous results exactly: mean
 pairwise correlation 0.0106 in the asynchronous regime and 0.4177 in the
 bursting regime, unchanged to four decimal places.
 
+`docs/code-walkthrough.md` is a reading order through the source with the
+reasoning behind the decisions that are not obvious from the code.
+
 ## Model equations
 
 **Astrocyte** (Li & Rinzel 1994, extended by Nadkarni & Jung 2003). State
@@ -314,7 +317,7 @@ src/                   implementation and command-line front end
 config/                parameter sets, one per regime
 tests/                 component tests, no external framework
 scripts/               plotting, NEST default dump, Roihu build and baseline
-docs/                  validation results, GPU port plan, Roihu notes
+docs/                  code walkthrough, validation, GPU port plan, Roihu notes
 ```
 
 ## Performance profile
