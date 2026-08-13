@@ -64,7 +64,11 @@ astrocytes. The feedback runs entirely through the astrocytic pathway.
 Both runs take about a minute. `-t 120000` shortens the recorded window from
 the configured five minutes; the transition is present either way.
 
-Reproducing that transition is what says the implementation is right.
+The implementation also reproduces a published number. The paper reports a mean
+firing rate of 4.76 spikes/s for its "Sparse" benchmark model; `config/paper_sparse.json`
+gives 4.7445 Hz averaged over three seeds, an agreement of 0.33 %.
+
+Reproducing both is what says the implementation is right.
 `docs/validation.md` records it, together with the four errors found while
 getting there and the things that remain unchecked.
 
@@ -156,6 +160,7 @@ Command line options:
 | `config/scale_1000.json` | Ten times larger, in-degree held constant so the regime is preserved. |
 | `config/scale_1000_saturated.json` | Ten times larger with the connection probability fixed, so the network saturates. A throughput probe, not a model. |
 | `config/kernel_scaling.json` | Fixed neurons, astrocyte count set with `--astrocytes`. For measuring kernel throughput. |
+| `config/paper_sparse.json` | The reference "Sparse" benchmark model. Reproduces the published mean firing rate to 0.33 %. |
 | `config/quick.json` | Small and short. For checking a build only. |
 
 ## GPU offload
@@ -400,8 +405,10 @@ traces.
    propagated exactly instead of through the RK stages. Increase `substeps` to
    check whether a result depends on the step size.
 2. **Short-term plasticity.** Implemented in the published Tsodyks-Markram
-   form. NEST's `tsodyks_synapse` update order has not been compared against
-   it. Set `synapse.stp.enabled` to `false` for static weights.
+   form. NEST's `tsodyks_synapse` update order has not been compared against it
+   line by line, though the benchmark firing rate agreeing to 0.33 % suggests
+   the aggregate behaviour matches. Set `synapse.stp.enabled` to `false` for
+   static weights.
 3. **Random numbers.** A different generator, so the same seed gives a
    different noise realisation. Runs are reproducible within this simulator
    only.

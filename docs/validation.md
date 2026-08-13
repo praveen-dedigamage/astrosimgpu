@@ -61,6 +61,56 @@ This control is also a useful canary. Three separate implementation errors
 were caught by noticing that the default configuration had become
 indistinguishable from it.
 
+## Comparison against a published value
+
+The paper reports a mean neuronal firing rate for its "Sparse" benchmark model:
+4.76 spikes/s at 20,000 cells, averaged over nine simulations, against 11.95
+for the "Synchronous" variant.
+
+`config/paper_sparse.json` reproduces that model. Its parameters are taken from
+`model_default` in the reference benchmark's `network.py`: 8000 excitatory,
+2000 inhibitory and 10,000 astrocytes, pairwise Bernoulli primary connections
+at p = 0.1, random astrocyte pools of ten with p_third = 0.5, a 2000 Hz Poisson
+drive, and no parameter randomisation. Anything not set there is a NEST default
+and is left at the compiled-in default here.
+
+```bash
+for s in 1 2 3; do
+  ./build/astrosimgpu --config config/paper_sparse.json -t 10000 -p 1000 -s $s -o /tmp/paper_s$s
+done
+```
+
+| | mean firing rate |
+|---|---|
+| seed 1 | 4.7390 Hz |
+| seed 2 | 4.7309 Hz |
+| seed 3 | 4.7636 Hz |
+| mean of three | 4.7445 Hz |
+| paper, mean of nine | 4.76 spikes/s |
+
+The agreement is 0.33 %, and the published value falls inside the seed-to-seed
+spread of these three runs.
+
+What that does and does not establish:
+
+- It exercises the neuron model, the astrocyte model, the tripartite
+  connectivity rule with random pools, the short-term plasticity, the Poisson
+  input and the SIC coupling together, and they produce the same collective
+  firing rate as NEST. Short-term plasticity in particular was the leading
+  suspect for a systematic discrepancy, and at least in aggregate it is not
+  one.
+- It is one observable on one model. Agreement in mean firing rate does not
+  establish agreement in the calcium statistics, in transient timing, or in
+  the synchrony measures.
+- It validates the machinery, not `config/use_case.json`. The two share the
+  cell models and the connectivity rule but not the parameters.
+- The paper gives no spread for its nine simulations, so it is not possible to
+  say whether this result sits inside theirs.
+
+Note that this agreement holds at `substeps = 1`, where the calcium transient
+count is demonstrably not converged. The firing rate appears to be far less
+sensitive to step size than the calcium measures are.
+
 ## Step size dependence
 
 The reported values depend on the integration step. `config/use_case.json` at
@@ -107,18 +157,19 @@ therefore more offload-friendly than the default one, not less.
 
 Stated explicitly, because the gap matters more than the agreement:
 
-- **No quantitative comparison against the reference implementation.** The
-  regime transition reproduces qualitatively. Absolute firing rates, transient
-  durations, and the magnitude of the correlation have not been compared
-  against the published figures or against a NEST run.
+- **Only one published value has been compared.** The mean firing rate of the
+  "Sparse" benchmark model agrees to 0.33 %, as above. Calcium transient
+  durations, transient timing and the magnitude of the synchrony measures have
+  not been compared against the published figures or against a NEST run.
 - **The excitatory and inhibitory populations fire at very different rates**
   (roughly 0.1 Hz against 2 Hz). This follows from the parameters -- the
   inhibitory cells have a leak conductance of 4.3 nS against 18 nS and sit
   much closer to threshold under their Poisson drive -- but whether the
   reference shows the same asymmetry is unverified.
 - **Short-term plasticity** is implemented in the published Tsodyks-Markram
-  form; the reference uses NEST's `tsodyks_synapse`, whose update order has
-  not been diffed against it.
+  form, and NEST's `tsodyks_synapse` update order has still not been diffed
+  against it line by line. The firing rate comparison above suggests the
+  aggregate behaviour matches, which is weaker than a diff but not nothing.
 - **NEST defaults** were read from source rather than from a running install.
   `scripts/dump_nest_defaults.py` produces a file to diff against
   `config/use_case.json`; one value, `delta_IP3`, remains unconfirmed.
