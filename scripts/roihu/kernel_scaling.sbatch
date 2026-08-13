@@ -39,13 +39,16 @@ CONFIG=config/kernel_scaling.json
 PRE=${PRE:-1000}
 SIM=${SIM:-5000}
 DT=0.1
-STEPS=$(awk -v p=$PRE -v s=$SIM -v d=$DT 'BEGIN{printf "%d", (p+s)/d}')
+# Only the recorded window, not the transient. The phase timers start at the
+# end of the transient, so dividing by the total step count understates every
+# figure by the ratio between them.
+STEPS=$(awk -v s=$SIM -v d=$DT 'BEGIN{printf "%d", s/d}')
 
 SIZES="${SIZES:-100 1000 10000 40000}"
 
 echo "host   : $(hostname)   cores: $(nproc)"
 nvidia-smi --query-gpu=name --format=csv,noheader || true
-echo "steps  : $STEPS   (pre ${PRE}ms + sim ${SIM}ms at dt ${DT}ms)"
+echo "steps  : $STEPS measured   (${PRE}ms transient discarded, ${SIM}ms recorded, dt ${DT}ms)"
 echo "threads: ${SLURM_CPUS_PER_TASK:-72} requested for the host runs"
 # Confirmed rather than assumed: the host figures are quoted as a many-core
 # baseline, and a serial run would produce a plausible-looking number that

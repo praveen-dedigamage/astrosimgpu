@@ -205,20 +205,20 @@ sweep, one build: host is 72 Grace cores built with nvc++, device is one GH200.
 
 | astrocytes | host | device | |
 |---|---|---|---|
-| 100 | 3.3 us | 23.4 us | host 7.1x faster |
-| 1,000 | 4.2 us | 24.4 us | host 5.9x faster |
-| 10,000 | 10.9 us | 26.4 us | host 2.4x faster |
-| 40,000 | 30.0 us | 30.2 us | even |
-| 100,000 | 67.2 us | 37.6 us | device 1.8x faster |
-| 1,000,000 | 670.9 us | 141.0 us | device 4.8x faster |
-| 10,000,000 | 6,388.4 us | 1,142.3 us | device 5.6x faster |
+| 100 | 4.0 us | 28.0 us | host 7.1x faster |
+| 1,000 | 5.1 us | 29.3 us | host 5.8x faster |
+| 10,000 | 13.0 us | 31.7 us | host 2.4x faster |
+| 40,000 | 36.0 us | 36.2 us | even |
+| 100,000 | 80.6 us | 45.2 us | device 1.8x faster |
+| 1,000,000 | 805.1 us | 169.2 us | device 4.8x faster |
+| 10,000,000 | 7,666.1 us | 1,370.8 us | device 5.6x faster |
 
 Both costs are linear in the population above ten thousand cells, with a fixed
 cost per step that dominates below it:
 
 ```
-device  ~ 23 us + 0.111 ns per astrocyte
-host    ~  3 us + 0.650 ns per astrocyte
+device  ~ 28 us + 0.133 ns per astrocyte
+host    ~  4 us + 0.762 ns per astrocyte
 ```
 
 The marginal figures are consistent across every decade measured, so the
@@ -231,15 +231,15 @@ marginal advantage takes over. Per-GPU population sizes implied by
 exascale-scale simulation are 10^5 to 10^6, where the measured advantage is
 between 1.8x and 4.8x.
 
-The device's 23 microsecond fixed cost is three device operations per step: the
+The device's 28 microsecond fixed cost is three device operations per step: the
 input transfer, the kernel launch, and the calcium transfer back. Removing the
 two transfers, by moving SIC delivery onto the device as well, would leave the
 launch alone and should bring the crossover down to roughly ten thousand.
 
 Keeping the state resident on the device rather than mapping it every step is
-what made these figures possible. Before that change the device cost 435
-microseconds per step at one million astrocytes against 141 now, and the fixed
-cost was 46 microseconds rather than 23.
+what made these figures possible. Before that change the device cost 522
+microseconds per step at one million astrocytes against 169 now, and the fixed
+cost was 55 microseconds rather than 28.
 
 ### Limitations
 

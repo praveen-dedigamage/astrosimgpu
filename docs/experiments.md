@@ -76,8 +76,8 @@ step, and a per-cell cost that only becomes efficient once the device is
 occupied. Measured on one build after the residency change:
 
 ```
-device  ~ 23 us + 0.111 ns per astrocyte
-host    ~  3 us + 0.650 ns per astrocyte
+device  ~ 28 us + 0.133 ns per astrocyte
+host    ~  4 us + 0.762 ns per astrocyte
 ```
 
 The three outcomes listed above did not include this one. The flat region below
@@ -106,6 +106,26 @@ machine we are actually porting for.
 work, and any speedup claim against the single-core number is inflated.
 
 **Cost.** One batch job, 15 minutes.
+
+**Result: the host baseline is genuine.** One million astrocytes, 2000 measured
+steps:
+
+| threads | update astrocytes | us/step | speedup | efficiency |
+|---|---|---|---|---|
+| 1 | 99.03 s | 49,515 | 1x | |
+| 8 | 12.46 s | 6,232 | 7.94x | 99 % |
+| 72 | 1.59 s | 797 | 62.1x | 86 % |
+
+86 % parallel efficiency across 72 Grace cores. Every host figure quoted
+elsewhere is a real many-core measurement rather than a serial run.
+
+This check also exposed an arithmetic error in the sweep script. It divided the
+phase timings by the total step count including the discarded transient,
+whereas the timers only accumulate over the recorded window. Every absolute
+figure it produced was therefore low by the ratio between them, a factor of
+1.2. The ratios between the two columns were unaffected, since both carried the
+same error, so the speedups and the crossover population did not change. The
+absolute microsecond values have been restated.
 
 ---
 
@@ -176,10 +196,10 @@ as well, because the neuron update has more state and would pay more.
 
 | astrocytes | device before | device after | host | speedup |
 |---|---|---|---|---|
-| 1,000,000 | 435.1 us | 141.0 us | 670.9 us | 4.76x |
-| 10,000,000 | 3,514.9 us | 1,142.3 us | 6,388.4 us | 5.59x |
+| 1,000,000 | 522.1 us | 169.2 us | 805.1 us | 4.76x |
+| 10,000,000 | 4,217.9 us | 1,370.8 us | 7,666.1 us | 5.59x |
 
-The fixed cost per step fell from 46 to 23 microseconds, and the crossover
+The fixed cost per step fell from 55 to 28 microseconds, and the crossover
 population with it, from about 150,000 to about 40,000.
 
 The device improved 3.0x at both sizes. That consistency across a tenfold

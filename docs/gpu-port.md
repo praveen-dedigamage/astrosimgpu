@@ -163,19 +163,19 @@ Grace cores built with nvc++.
 
 | astrocytes | host | device | |
 |---|---|---|---|
-| 100 | 3.3 us | 23.4 us | host 7.1x |
-| 1,000 | 4.2 us | 24.4 us | host 5.9x |
-| 10,000 | 10.9 us | 26.4 us | host 2.4x |
-| 40,000 | 30.0 us | 30.2 us | even |
-| 100,000 | 67.2 us | 37.6 us | device 1.8x |
-| 1,000,000 | 670.9 us | 141.0 us | device 4.8x |
-| 10,000,000 | 6,388.4 us | 1,142.3 us | device 5.6x |
+| 100 | 4.0 us | 28.0 us | host 7.1x |
+| 1,000 | 5.1 us | 29.3 us | host 5.8x |
+| 10,000 | 13.0 us | 31.7 us | host 2.4x |
+| 40,000 | 36.0 us | 36.2 us | even |
+| 100,000 | 80.6 us | 45.2 us | device 1.8x |
+| 1,000,000 | 805.1 us | 169.2 us | device 4.8x |
+| 10,000,000 | 7,666.1 us | 1,370.8 us | device 5.6x |
 
 Both are linear above ten thousand cells with a fixed per-step cost below it:
 
 ```
-device  ~ 23 us + 0.111 ns per astrocyte
-host    ~  3 us + 0.650 ns per astrocyte
+device  ~ 28 us + 0.133 ns per astrocyte
+host    ~  4 us + 0.762 ns per astrocyte
 ```
 
 The marginal figures repeat across every decade measured, so the kernel is
@@ -203,9 +203,9 @@ step. At ten million astrocytes that was around 960 MB of traffic per step.
 
 | | before | after |
 |---|---|---|
-| fixed cost per step | 46 us | 23 us |
-| 1,000,000 astrocytes | 435 us | 141 us |
-| 10,000,000 astrocytes | 3,515 us | 1,142 us |
+| fixed cost per step | 55 us | 28 us |
+| 1,000,000 astrocytes | 522 us | 169 us |
+| 10,000,000 astrocytes | 4,218 us | 1,371 us |
 
 The device improved by very close to 3x at both large sizes. That the factor is
 the same across a tenfold change in population is what identifies the cause as
@@ -217,7 +217,7 @@ costing more than the estimate allowed.
 
 ### What remains
 
-The 23 microsecond fixed cost is three device operations per step: transfer the
+The 28 microsecond fixed cost is three device operations per step: transfer the
 synaptic input across, launch the kernel, transfer calcium back. A launch alone
 is a few microseconds, so the two transfers are most of it.
 
