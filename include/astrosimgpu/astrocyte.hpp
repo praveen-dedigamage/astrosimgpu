@@ -2,6 +2,10 @@
 
 #include "astrosimgpu/astrocyte_kernel.hpp"
 #include "astrosimgpu/parameters.hpp"
+
+#if defined(ASTROSIMGPU_KOKKOS)
+#include <Kokkos_Core.hpp>
+#endif
 #include "astrosimgpu/rng.hpp"
 #include "astrosimgpu/types.hpp"
 
@@ -77,6 +81,19 @@ public:
 private:
     /// Shared parameters packed for passing into a kernel by value.
     [[nodiscard]] AstroConstants constants() const;
+
+#if defined(ASTROSIMGPU_KOKKOS)
+    /// Device copies of the per-cell arrays.
+    ///
+    /// The std::vectors above stay the canonical host storage, and these are
+    /// synchronised at the same four points the OpenMP target path uses, so
+    /// the two backends move data at identical moments and can be compared
+    /// without the transfer pattern differing between them.
+    using DeviceArray = Kokkos::View<real*>;
+    DeviceArray d_Ca_, d_IP3_, d_h_, d_ip3_input_;
+    DeviceArray d_Ca_tot_, d_IP3_0_, d_tau_IP3_, d_delta_IP3_;
+    bool device_ready_ = false;
+#endif
 
     AstrocyteParams p_{};
     InputParams input_{};

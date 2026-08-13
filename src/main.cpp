@@ -15,6 +15,9 @@
 #ifdef _OPENMP
 #include <omp.h>
 #endif
+#if defined(ASTROSIMGPU_KOKKOS)
+#include <Kokkos_Core.hpp>
+#endif
 
 using namespace astrosimgpu;
 
@@ -94,6 +97,16 @@ std::string format_summary(const Network& net, const NetworkStats& s, double wal
 #else
     os << "OpenMP threads        1 (built without OpenMP)\n";
 #endif
+    // Which backend actually ran the astrocyte update. Without this a timing
+    // cannot be attributed to anything.
+#if defined(ASTROSIMGPU_KOKKOS)
+    os << "astrocyte backend     Kokkos, "
+       << Kokkos::DefaultExecutionSpace::name() << "\n";
+#elif defined(ASTROSIMGPU_OFFLOAD)
+    os << "astrocyte backend     OpenMP target offload\n";
+#else
+    os << "astrocyte backend     host\n";
+#endif
     os << "transient             " << c.time.pre_sim_time << " ms\n";
     os << "recorded              " << c.time.sim_time << " ms\n";
     os << "seed                  " << c.seed << "\n";
@@ -148,6 +161,11 @@ std::string format_summary(const Network& net, const NetworkStats& s, double wal
 }  // namespace
 
 int main(int argc, char** argv) {
+#if defined(ASTROSIMGPU_KOKKOS)
+    // Kokkos must outlive every View. run_simulation is called inside this
+    // scope guard so the device arrays are destroyed before finalize.
+    Kokkos::ScopeGuard kokkos_guard(argc, argv);
+#endif
     std::string config_path = "config/use_case.json";
     std::string output_override;
     bool run_analysis = true;

@@ -192,6 +192,17 @@ make OFFLOAD=1 OFFLOAD_FLAGS="-mp=gpu -gpu=cc90" CXX=nvc++
 Or with CMake, `-DASTROSIMGPU_OFFLOAD=ON` plus the offload flags for your
 compiler.
 
+A **Kokkos** backend for the same loop exists as an alternative, so the cost of
+a portability layer can be measured against the directives rather than assumed.
+It has not yet been compiled. See `docs/kokkos.md`.
+
+```bash
+cmake -S . -B build-kokkos -DASTROSIMGPU_KOKKOS=ON -DKokkos_ROOT=/path/to/kokkos
+```
+
+Every run reports which backend ran the astrocyte update, so a timing can
+always be attributed.
+
 ### Measured on Roihu
 
 Built with NVHPC 26.3 on the Grace ARM login node and run on one NVIDIA GH200

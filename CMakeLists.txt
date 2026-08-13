@@ -14,6 +14,10 @@ option(ASTROSIMGPU_OPENMP "Use OpenMP for the per-cell update loops" ON)
 option(ASTROSIMGPU_BUILD_TESTS "Build the test binary" ON)
 # Off by default: the default build contains no device code.
 option(ASTROSIMGPU_OFFLOAD "Compile the astrocyte update as an OpenMP target region" OFF)
+# Kokkos is an alternative to the OpenMP target path, not an addition to it.
+# Both express the same loop over the same per-cell function; the point of
+# having both is to measure what the abstraction costs.
+option(ASTROSIMGPU_KOKKOS "Run the astrocyte update through Kokkos" OFF)
 
 add_library(astrosimgpu_core
   src/astrocyte.cpp
@@ -50,6 +54,16 @@ if(ASTROSIMGPU_OPENMP)
   else()
     message(STATUS "OpenMP not found; building single-threaded")
   endif()
+endif()
+
+if(ASTROSIMGPU_KOKKOS)
+  if(ASTROSIMGPU_OFFLOAD)
+    message(FATAL_ERROR "ASTROSIMGPU_KOKKOS and ASTROSIMGPU_OFFLOAD are alternatives; enable one")
+  endif()
+  find_package(Kokkos REQUIRED)
+  target_compile_definitions(astrosimgpu_core PUBLIC ASTROSIMGPU_KOKKOS)
+  target_link_libraries(astrosimgpu_core PUBLIC Kokkos::kokkos)
+  message(STATUS "Kokkos backend enabled: ${Kokkos_DEVICES}")
 endif()
 
 if(ASTROSIMGPU_OFFLOAD)

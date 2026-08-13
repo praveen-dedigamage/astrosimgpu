@@ -5,7 +5,24 @@
 #include "astrosimgpu/rng.hpp"
 #include "astrosimgpu/types.hpp"
 
+#if defined(ASTROSIMGPU_KOKKOS)
+#include <Kokkos_Core.hpp>
+#endif
+
 namespace astrosimgpu {
+
+/// Decoration for functions that must be callable from whichever backend is
+/// compiled in.
+///
+/// OpenMP target offload needs `declare target` around the definitions; Kokkos
+/// needs each function marked individually, since KOKKOS_INLINE_FUNCTION
+/// expands to `__host__ __device__` under CUDA. Both reduce to plain `inline`
+/// in a host build, and the function bodies are identical in all three cases.
+#if defined(ASTROSIMGPU_KOKKOS)
+#define ASTROSIMGPU_FN KOKKOS_INLINE_FUNCTION
+#else
+#define ASTROSIMGPU_FN inline
+#endif
 
 /// Per-cell astrocyte update, free of member state.
 ///
@@ -38,7 +55,7 @@ struct AstroConstants {
 #endif
 
 /// Right-hand side of the three-variable Li-Rinzel system for one cell.
-inline void astro_derivatives(const AstroConstants& c, real Ca_tot, real IP3_0, real tau_IP3,
+ASTROSIMGPU_FN void astro_derivatives(const AstroConstants& c, real Ca_tot, real IP3_0, real tau_IP3,
                               real Ca, real IP3, real h, real noise, real& dCa, real& dIP3,
                               real& dh) {
     const real Ca_ER = (Ca_tot - Ca) / c.ratio_ER_cyt;
@@ -66,7 +83,7 @@ inline void astro_derivatives(const AstroConstants& c, real Ca_tot, real IP3_0, 
 /// State is taken and returned by reference so it can live in registers for
 /// the duration: nothing here reads or writes memory between substeps, which
 /// is the property the offloaded version depends on.
-inline void astro_advance(const AstroConstants& c, real Ca_tot, real IP3_0, real tau_IP3,
+ASTROSIMGPU_FN void astro_advance(const AstroConstants& c, real Ca_tot, real IP3_0, real tau_IP3,
                           real delta_IP3, real ip3_input, real noise, real h_step, int substeps,
                           real& Ca, real& IP3, real& h) {
     // Spikes arriving this step deposit IP3 instantaneously; the synaptic

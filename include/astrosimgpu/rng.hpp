@@ -5,6 +5,13 @@
 
 #include "astrosimgpu/types.hpp"
 
+#if defined(ASTROSIMGPU_KOKKOS)
+#include <Kokkos_Macros.hpp>
+#define ASTROSIMGPU_RNG_FN KOKKOS_INLINE_FUNCTION
+#else
+#define ASTROSIMGPU_RNG_FN inline
+#endif
+
 namespace astrosimgpu {
 
 /// splitmix64 finalizer over a mixed (seed, stream, counter) word.
@@ -17,7 +24,7 @@ namespace astrosimgpu {
 #pragma omp declare target
 #endif
 
-inline std::uint64_t rng_bits(std::uint64_t seed, std::uint64_t stream, std::uint64_t counter) {
+ASTROSIMGPU_RNG_FN std::uint64_t rng_bits(std::uint64_t seed, std::uint64_t stream, std::uint64_t counter) {
     std::uint64_t z = seed;
     z += stream * 0x9E3779B97F4A7C15ULL;
     z += counter * 0xBF58476D1CE4E5B9ULL;
@@ -27,7 +34,7 @@ inline std::uint64_t rng_bits(std::uint64_t seed, std::uint64_t stream, std::uin
 }
 
 /// Uniform on [0, 1) from a single counter value.
-inline real rng_uniform(std::uint64_t seed, std::uint64_t stream, std::uint64_t counter) {
+ASTROSIMGPU_RNG_FN real rng_uniform(std::uint64_t seed, std::uint64_t stream, std::uint64_t counter) {
     return static_cast<real>(rng_bits(seed, stream, counter) >> 11) *
            (1.0 / 9007199254740992.0);
 }
@@ -36,7 +43,7 @@ inline real rng_uniform(std::uint64_t seed, std::uint64_t stream, std::uint64_t 
 ///
 /// This is what a freshly constructed CounterRng returns from its first
 /// normal() call, and the test suite checks that equality holds.
-inline real rng_normal(std::uint64_t seed, std::uint64_t stream) {
+ASTROSIMGPU_RNG_FN real rng_normal(std::uint64_t seed, std::uint64_t stream) {
     real u1 = rng_uniform(seed, stream, 0);
     if (u1 <= 1e-300) {
         u1 = 1e-300;

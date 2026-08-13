@@ -51,7 +51,46 @@ void AstrocytePopulation::build(index_t count, const AstrocyteParams& base,
     }
 }
 
+namespace {
+#if defined(ASTROSIMGPU_KOKKOS)
+/// Copy a host vector into a freshly allocated device View.
+Kokkos::View<real*> to_device(const char* name, const vec<real>& host) {
+    Kokkos::View<real*> d(Kokkos::view_alloc(Kokkos::WithoutInitializing, name), host.size());
+    auto mirror = Kokkos::create_mirror_view(d);
+    for (std::size_t i = 0; i < host.size(); ++i) {
+        mirror(i) = host[i];
+    }
+    Kokkos::deep_copy(d, mirror);
+    return d;
+}
+
+/// Copy a device View back into a host vector.
+void from_device(const Kokkos::View<real*>& d, vec<real>& host) {
+    auto mirror = Kokkos::create_mirror_view(d);
+    Kokkos::deep_copy(mirror, d);
+    for (std::size_t i = 0; i < host.size(); ++i) {
+        host[i] = mirror(i);
+    }
+}
+#endif
+}  // namespace
+
 void AstrocytePopulation::device_begin() {
+#if defined(ASTROSIMGPU_KOKKOS)
+    if (size() == 0) {
+        return;
+    }
+    d_Ca_ = to_device("Ca", Ca_);
+    d_IP3_ = to_device("IP3", IP3_);
+    d_h_ = to_device("h", h_);
+    d_ip3_input_ = to_device("ip3_input", ip3_input_);
+    d_Ca_tot_ = to_device("Ca_tot", Ca_tot_);
+    d_IP3_0_ = to_device("IP3_0", IP3_0_);
+    d_tau_IP3_ = to_device("tau_IP3", tau_IP3_);
+    d_delta_IP3_ = to_device("delta_IP3", delta_IP3_);
+    device_ready_ = true;
+    return;
+#endif
 #ifdef ASTROSIMGPU_OFFLOAD
     const std::int64_t n = size();
     if (n == 0) {
@@ -73,6 +112,15 @@ void AstrocytePopulation::device_begin() {
 }
 
 void AstrocytePopulation::device_end() {
+#if defined(ASTROSIMGPU_KOKKOS)
+    if (device_ready_) {
+        from_device(d_Ca_, Ca_);
+        from_device(d_IP3_, IP3_);
+        from_device(d_h_, h_);
+        device_ready_ = false;
+    }
+    return;
+#endif
 #ifdef ASTROSIMGPU_OFFLOAD
     const std::int64_t n = size();
     if (n == 0) {
@@ -94,6 +142,16 @@ void AstrocytePopulation::device_end() {
 }
 
 void AstrocytePopulation::device_push_input() {
+#if defined(ASTROSIMGPU_KOKKOS)
+    if (device_ready_) {
+        auto mirror = Kokkos::create_mirror_view(d_ip3_input_);
+        for (std::size_t i = 0; i < ip3_input_.size(); ++i) {
+            mirror(i) = ip3_input_[i];
+        }
+        Kokkos::deep_copy(d_ip3_input_, mirror);
+    }
+    return;
+#endif
 #ifdef ASTROSIMGPU_OFFLOAD
     const std::int64_t n = size();
     if (n == 0) {
@@ -105,6 +163,12 @@ void AstrocytePopulation::device_push_input() {
 }
 
 void AstrocytePopulation::device_pull_calcium() {
+#if defined(ASTROSIMGPU_KOKKOS)
+    if (device_ready_) {
+        from_device(d_Ca_, Ca_);
+    }
+    return;
+#endif
 #ifdef ASTROSIMGPU_OFFLOAD
     const std::int64_t n = size();
     if (n == 0) {
@@ -158,6 +222,44 @@ void AstrocytePopulation::update(const TimeGrid& time, std::int64_t step, std::u
     const real* __restrict IP3_0 = IP3_0_.data();
     const real* __restrict tau_IP3 = tau_IP3_.data();
     const real* __restrict delta_IP3 = delta_IP3_.data();
+
+#if defined(ASTROSIMGPU_KOKKOS)
+    // Same body as the other two backends, expressed as a Kokkos lambda. The
+    // per-cell function is shared, so only the dispatch differs and the three
+    // can be compared without the arithmetic being a variable.
+    if (device_ready_) {
+        auto Ca_d = d_Ca_;
+        auto IP3_d = d_IP3_;
+        auto h_d = d_h_;
+        auto ip3_d = d_ip3_input_;
+        auto Ca_tot_d = d_Ca_tot_;
+        auto IP3_0_d = d_IP3_0_;
+        auto tau_d = d_tau_IP3_;
+        auto delta_d = d_delta_IP3_;
+        Kokkos::parallel_for(
+            "astrocyte_update", Kokkos::RangePolicy<>(0, n), KOKKOS_LAMBDA(const std::int64_t i) {
+                const real noise =
+                    (noise_std > 0.0 && independent)
+                        ? noise_std * rng_normal(noise_seed, noise_index * 1000003ULL +
+                                                                 static_cast<std::uint64_t>(i))
+                        : shared_noise;
+                real ca = Ca_d(i);
+                real ip3 = IP3_d(i);
+                real hh = h_d(i);
+                astro_advance(c, Ca_tot_d(i), IP3_0_d(i), tau_d(i), delta_d(i), ip3_d(i), noise,
+                              h_step, substeps, ca, ip3, hh);
+                Ca_d(i) = ca;
+                IP3_d(i) = ip3;
+                h_d(i) = hh;
+                ip3_d(i) = 0.0;
+            });
+        Kokkos::fence();
+        for (std::int64_t i = 0; i < n; ++i) {
+            ip3_in[i] = 0.0;
+        }
+        return;
+    }
+#endif
 
 #ifdef ASTROSIMGPU_OFFLOAD
 #pragma omp target teams distribute parallel for                                        \
