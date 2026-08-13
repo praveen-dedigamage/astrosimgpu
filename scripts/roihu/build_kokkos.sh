@@ -58,13 +58,28 @@ cmake -S . -B build-kokkos \
 cmake --build build-kokkos -j16
 
 echo
-echo "== tests =="
-./build-kokkos/astrosimgpu_tests
+echo "== build complete =="
 
-echo
-echo "== backend reported by the binary =="
-./build-kokkos/astrosimgpu --config config/quick.json -o /tmp/kokkos-check.$$ >/dev/null
-grep -E "astrocyte backend" /tmp/kokkos-check.$$/run.txt
+# A CUDA-enabled Kokkos binary links against libcuda.so.1, the driver library,
+# which is only present on nodes that have a GPU. Running it on the login node
+# fails before main() with a missing shared library, so the check happens in an
+# allocation rather than here.
+if [[ -n "${SLURM_JOB_ID:-}" ]] || command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+    echo "== tests =="
+    ./build-kokkos/astrosimgpu_tests
+    ./build-kokkos/astrosimgpu --config config/quick.json -o /tmp/kokkos-check.$$ >/dev/null
+    grep -E "astrocyte backend" /tmp/kokkos-check.$$/run.txt
+else
+    cat <<'EOF'
 
-echo
-echo "Next: sbatch scripts/roihu/three_way.sbatch"
+No GPU on this node, so the binary cannot start: a CUDA build links against
+the driver library, which only exists where a GPU does. Check it in an
+allocation:
+
+  srun --account=project_2003397 --partition=gputest --time=00:10:00 \
+       --gres=gpu:gh200:1 --ntasks-per-node=1 --cpus-per-task=72 \
+       ./build-kokkos/astrosimgpu_tests
+
+Then: sbatch scripts/roihu/three_way.sbatch
+EOF
+fi
