@@ -51,6 +51,70 @@ void AstrocytePopulation::build(index_t count, const AstrocyteParams& base,
     }
 }
 
+void AstrocytePopulation::device_begin() {
+#ifdef ASTROSIMGPU_OFFLOAD
+    const std::int64_t n = size();
+    if (n == 0) {
+        return;
+    }
+    real* Ca = Ca_.data();
+    real* IP3 = IP3_.data();
+    real* hv = h_.data();
+    real* ip3_in = ip3_input_.data();
+    const real* Ca_tot = Ca_tot_.data();
+    const real* IP3_0 = IP3_0_.data();
+    const real* tau_IP3 = tau_IP3_.data();
+    const real* delta_IP3 = delta_IP3_.data();
+#pragma omp target enter data map(to                                                     \
+                                  : Ca [0:n], IP3 [0:n], hv [0:n], ip3_in [0:n],         \
+                                    Ca_tot [0:n], IP3_0 [0:n], tau_IP3 [0:n],            \
+                                    delta_IP3 [0:n])
+#endif
+}
+
+void AstrocytePopulation::device_end() {
+#ifdef ASTROSIMGPU_OFFLOAD
+    const std::int64_t n = size();
+    if (n == 0) {
+        return;
+    }
+    real* Ca = Ca_.data();
+    real* IP3 = IP3_.data();
+    real* hv = h_.data();
+    real* ip3_in = ip3_input_.data();
+    const real* Ca_tot = Ca_tot_.data();
+    const real* IP3_0 = IP3_0_.data();
+    const real* tau_IP3 = tau_IP3_.data();
+    const real* delta_IP3 = delta_IP3_.data();
+#pragma omp target exit data map(from                                                    \
+                                 : Ca [0:n], IP3 [0:n], hv [0:n])                        \
+    map(release                                                                          \
+        : ip3_in [0:n], Ca_tot [0:n], IP3_0 [0:n], tau_IP3 [0:n], delta_IP3 [0:n])
+#endif
+}
+
+void AstrocytePopulation::device_push_input() {
+#ifdef ASTROSIMGPU_OFFLOAD
+    const std::int64_t n = size();
+    if (n == 0) {
+        return;
+    }
+    real* ip3_in = ip3_input_.data();
+#pragma omp target update to(ip3_in [0:n])
+#endif
+}
+
+void AstrocytePopulation::device_pull_calcium() {
+#ifdef ASTROSIMGPU_OFFLOAD
+    const std::int64_t n = size();
+    if (n == 0) {
+        return;
+    }
+    real* Ca = Ca_.data();
+#pragma omp target update from(Ca [0:n])
+#endif
+}
+
 AstroConstants AstrocytePopulation::constants() const {
     AstroConstants c{};
     c.Kd_IP3_1 = p_.Kd_IP3_1;

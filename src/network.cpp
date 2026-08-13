@@ -378,6 +378,12 @@ void Network::run(Recorder& recorder) {
     // it does not, and the error showed up as a negative "other" row.
     auto measured_start = clock::now();
 
+    // Keep the astrocyte state on the device for the whole run. The map
+    // clauses inside the update then find the arrays already present and move
+    // nothing, leaving only the two quantities that genuinely cross the
+    // boundary each step.
+    astro_.device_begin();
+
     for (std::int64_t step = 0; step < total; ++step) {
         const bool measured = step >= pre_steps;
         if (step == pre_steps) {
@@ -401,7 +407,10 @@ void Network::run(Recorder& recorder) {
         }
 
         t = clock::now();
+        astro_.device_push_input();
         astro_.update(cfg_.time, step, cfg_.seed);
+        // deliver_sic reads calcium on the host, so it has to come back.
+        astro_.device_pull_calcium();
         if (measured) {
             profile_.update_astro += tick(t);
         }
@@ -459,6 +468,8 @@ void Network::run(Recorder& recorder) {
                       << "%\r" << std::flush;
         }
     }
+    astro_.device_end();
+
     profile_.total = tick(measured_start);
     std::cout << "  done            " << std::endl;
 }

@@ -42,6 +42,23 @@ public:
     /// Deposit IP3 from presynaptic spikes arriving this step.
     void add_ip3_input(index_t cell, real weight) { ip3_input_[cell] += weight; }
 
+    /// Make the state resident on the device for the lifetime of a run.
+    ///
+    /// OpenMP map clauses are reference counted: once an array is present, a
+    /// later map on a target region finds it and moves nothing. The per-step
+    /// clauses in update() therefore become free, and only the two quantities
+    /// that genuinely cross the boundary each step have to be moved.
+    ///
+    /// All four are no-ops in a host build.
+    void device_begin();
+    void device_end();
+
+    /// Send this step's synaptic input to the device.
+    void device_push_input();
+
+    /// Retrieve calcium, which the host needs in order to deliver the SIC.
+    void device_pull_calcium();
+
     /// Advance every astrocyte by one communication step.
     /// `step` seeds the noise draw so a run is reproducible for a given seed.
     void update(const TimeGrid& time, std::int64_t step, std::uint64_t seed);

@@ -159,6 +159,23 @@ Anything short of bringing the per-step cost near the host's 3.1 us means the
 remaining overhead needs to be identified before the neuron update is offloaded
 as well, because the neuron update has more state and would pay more.
 
+**Status: implemented, not yet measured.** `AstrocytePopulation::device_begin`
+places the state on the device for the whole run with `omp target enter data`.
+The map clauses inside the update then find the arrays present and move
+nothing, since OpenMP map is reference counted. Two explicit transfers remain
+per step: the synaptic input goes to the device, and calcium comes back because
+`deliver_sic` reads it on the host.
+
+Predicted effect, at ten million astrocytes. Before: eight arrays mapped per
+step, about 960 MB of traffic, roughly 2,100 of the measured 3,515 us. After:
+two arrays, about 160 MB, roughly 350 us. That should take the astrocyte update
+from 3,515 to about 1,750 us per step and the speedup against the host from
+1.71x to about 3.4x.
+
+If the measurement lands well short of that, the remaining cost is not transfer
+volume and the next thing to look at is whether the runtime is really honouring
+the residency.
+
 **Cost.** Roughly an hour of work, then a repeat of experiment 1.
 
 **Do experiments 1 and 2 first.** If experiment 1 shows the cost growing with
