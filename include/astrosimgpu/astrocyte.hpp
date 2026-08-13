@@ -63,6 +63,15 @@ public:
     /// Retrieve calcium, which the host needs in order to deliver the SIC.
     void device_pull_calcium();
 
+    /// Clear the host-side synaptic input for the listed cells.
+    ///
+    /// The device zeroes its own copy inside the kernel, but with the arrays
+    /// resident nothing carries that back, so the host copy has to be cleared
+    /// separately or it accumulates for the whole run. Only cells some neuron
+    /// projects to can ever be non-zero, and passing that list keeps the cost
+    /// proportional to the connectivity rather than the population.
+    void clear_inputs(const vec<index_t>& cells);
+
     /// Advance every astrocyte by one communication step.
     /// `step` seeds the noise draw so a run is reproducible for a given seed.
     void update(const TimeGrid& time, std::int64_t step, std::uint64_t seed);
@@ -92,9 +101,6 @@ private:
     using DeviceArray = Kokkos::View<real*>;
     DeviceArray d_Ca_, d_IP3_, d_h_, d_ip3_input_;
     DeviceArray d_Ca_tot_, d_IP3_0_, d_tau_IP3_, d_delta_IP3_;
-    /// Host mirrors for the two arrays that cross the boundary every step,
-    /// allocated once rather than per call.
-    DeviceArray::HostMirror m_Ca_, m_ip3_input_;
     bool device_ready_ = false;
 #endif
 

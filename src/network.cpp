@@ -411,6 +411,7 @@ void Network::run(Recorder& recorder) {
         astro_.update(cfg_.time, step, cfg_.seed);
         // deliver_sic reads calcium on the host, so it has to come back.
         astro_.device_pull_calcium();
+        astro_.clear_inputs(astro_input_sinks_);
         if (measured) {
             profile_.update_astro += tick(t);
         }
