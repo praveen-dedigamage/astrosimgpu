@@ -78,8 +78,9 @@ The default build is CPU-only and needs nothing but a C++17 compiler.
 
 An OpenMP target offload of the astrocyte update exists behind a build flag
 that is off by default. It has been built with NVHPC and run on an NVIDIA
-GH200, where it produces results identical to the host build. It is not yet
-faster than the host in most configurations. See "GPU offload" below and
+GH200, where it produces results identical to the host build and is four to
+five times faster than 72 Grace cores at populations of a million astrocytes
+and above. Below roughly 150,000 it is slower. See "GPU offload" below and
 `docs/gpu-port.md`.
 
 ## Why a second implementation
@@ -200,25 +201,31 @@ across teams and 128 threads, with the device routines generated for
 **Correctness.** All 86 component checks pass on the device, and the offloaded
 run reproduces the host result exactly in every configuration tested.
 
-**Throughput**, astrocyte update phase only, normalised per timestep:
+**Throughput**, astrocyte update phase only, normalised per timestep. Host is
+72 Grace cores:
 
-| astrocytes | host, 72 Grace cores | offload | |
+| astrocytes | host | device | |
 |---|---|---|---|
-| 100 | 3.1 us/step | 41.2 us/step | host 13x faster |
-| 1000 | 58.4 us/step | 50.4 us/step | device 1.16x faster |
+| 100 | 3.6 us | 45.9 us | host 13x faster |
+| 1,000 | 4.0 us | 50.2 us | host 13x faster |
+| 10,000 | 11.0 us | 91.8 us | host 8x faster |
+| 40,000 | 31.0 us | 103.7 us | host 3x faster |
+| 1,000,000 | 582.4 us | 142.9 us | **device 4.1x faster** |
+| 10,000,000 | 5,962.4 us | 1,168.7 us | **device 5.1x faster** |
 
-The device cost barely moves for ten times the work: 41 to 50 microseconds. The
-cost is therefore per launch, not per byte. The `map` clauses sit inside the
-per-step update, so every step allocates eight arrays on the device, copies
-four in, launches a kernel over a few hundred cells, copies four back and frees
-them. Roughly 40 microseconds of that is fixed overhead.
+Below about 150,000 astrocytes the device loses. The kernel launches a few
+hundred threads on hardware with 132 multiprocessors, and a fixed cost of
+roughly 45 microseconds per step dominates everything else. Above a million it
+wins, and the margin grows with population.
 
-The device only wins at 1000 astrocytes because the host got slower, not
-because the device got faster.
+Per-GPU population sizes implied by exascale-scale simulations are between
+10^5 and 10^6 astrocytes, which is where the crossover sits.
 
-Keeping the arrays resident with `omp target enter data` should remove most of
-the fixed cost. That is the next change, and until it is made these numbers say
-nothing about whether the kernel itself is any good.
+Keeping the state resident on the device, rather than mapping it on every step,
+improved the device figures threefold at both large sizes: 435 to 143
+microseconds at one million, and 3,515 to 1,169 at ten million. The consistency
+across a tenfold change in population is what identifies the cause as per-step
+transfer rather than anything size dependent.
 
 ### Limitations
 

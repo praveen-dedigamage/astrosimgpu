@@ -159,7 +159,29 @@ Anything short of bringing the per-step cost near the host's 3.1 us means the
 remaining overhead needs to be identified before the neuron update is offloaded
 as well, because the neuron update has more state and would pay more.
 
-**Status: implemented, not yet measured.** `AstrocytePopulation::device_begin`
+**Status: done. The prediction was too conservative.**
+
+| astrocytes | device before | device after | host | speedup |
+|---|---|---|---|---|
+| 1,000,000 | 435.1 us | 142.9 us | 582.4 us | 4.08x |
+| 10,000,000 | 3,514.9 us | 1,168.7 us | 5,962.4 us | 5.10x |
+
+The device improved 3.0x at both sizes. That consistency across a tenfold
+change in population identifies the cause as per-step transfer rather than
+anything that scales with the data.
+
+The prediction below was 1,750 us and 3.4x at ten million; the measurement is
+1,169 us and 5.10x. The mapping was costing more than the estimate allowed for.
+
+One confound: the host baseline in the later run was built with nvc++ rather
+than GCC, following a module conflict on the machine. That made the host faster
+at one million, 832 to 582 microseconds, so the speedup is quoted against a
+stronger baseline than the earlier figures. Against the original GCC baseline
+the same device numbers would read 5.83x rather than 4.08x.
+
+Original prediction, kept for the record:
+
+**Implementation.** `AstrocytePopulation::device_begin`
 places the state on the device for the whole run with `omp target enter data`.
 The map clauses inside the update then find the arrays present and move
 nothing, since OpenMP map is reference counted. Two explicit transfers remain
