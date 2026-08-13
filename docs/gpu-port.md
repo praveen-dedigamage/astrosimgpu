@@ -161,6 +161,10 @@ the host result exactly in every configuration tested. The kernel is correct.
 
 Astrocyte update phase only, normalised per timestep:
 
+**These figures predate the residency change and a host compiler change, and
+are kept only as the starting point they were.** They cannot be compared
+directly with the current numbers further down.
+
 | astrocytes | host, 72 Grace cores | offload | |
 |---|---|---|---|
 | 100 | 3.1 us/step | 41.2 us/step | host 13x faster |

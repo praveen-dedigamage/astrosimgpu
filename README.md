@@ -80,8 +80,8 @@ An OpenMP target offload of the astrocyte update exists behind a build flag
 that is off by default. It has been built with NVHPC and run on an NVIDIA
 GH200, where it produces results identical to the host build and is four to
 five times faster than 72 Grace cores at populations of a million astrocytes
-and above. Below roughly 150,000 it is slower. See "GPU offload" below and
-`docs/gpu-port.md`.
+and above. The population below which the host wins has not been measured on
+the current build. See "GPU offload" below and `docs/gpu-port.md`.
 
 ## Why a second implementation
 
@@ -202,30 +202,31 @@ across teams and 128 threads, with the device routines generated for
 run reproduces the host result exactly in every configuration tested.
 
 **Throughput**, astrocyte update phase only, normalised per timestep. Host is
-72 Grace cores:
+72 Grace cores, built with nvc++; device is one GH200.
 
 | astrocytes | host | device | |
 |---|---|---|---|
-| 100 | 3.6 us | 45.9 us | host 13x faster |
-| 1,000 | 4.0 us | 50.2 us | host 13x faster |
-| 10,000 | 11.0 us | 91.8 us | host 8x faster |
-| 40,000 | 31.0 us | 103.7 us | host 3x faster |
-| 1,000,000 | 582.4 us | 142.9 us | **device 4.1x faster** |
-| 10,000,000 | 5,962.4 us | 1,168.7 us | **device 5.1x faster** |
+| 1,000,000 | 582.4 us | 142.9 us | device 4.1x faster |
+| 10,000,000 | 5,962.4 us | 1,168.7 us | device 5.1x faster |
 
-Below about 150,000 astrocytes the device loses. The kernel launches a few
-hundred threads on hardware with 132 multiprocessors, and a fixed cost of
-roughly 45 microseconds per step dominates everything else. Above a million it
-wins, and the margin grows with population.
+Keeping the state resident on the device rather than mapping it on every step
+improved the device figures threefold at both sizes: 435 to 143 microseconds at
+one million, and 3,515 to 1,169 at ten million. The improvement being the same
+factor across a tenfold change in population identifies the cause as per-step
+transfer rather than anything that scales with the data.
 
-Per-GPU population sizes implied by exascale-scale simulations are between
-10^5 and 10^6 astrocytes, which is where the crossover sits.
+**The crossover population is not currently known.** Measurements at 100 to
+40,000 astrocytes exist but were taken before the residency change and with a
+different host compiler, so they cannot be placed on the same curve as the two
+rows above. Since the fixed per-step cost that made small populations
+unfavourable was largely the mapping that residency removes, the crossover is
+expected to be well below the 150,000 those older measurements implied. The
+sweep needs repeating on one build before any figure is quoted:
 
-Keeping the state resident on the device, rather than mapping it on every step,
-improved the device figures threefold at both large sizes: 435 to 143
-microseconds at one million, and 3,515 to 1,169 at ten million. The consistency
-across a tenfold change in population is what identifies the cause as per-step
-transfer rather than anything size dependent.
+```bash
+sbatch --export=ALL,SIZES="100 1000 10000 40000 100000 1000000 10000000",PRE=100,SIM=500 \
+       scripts/roihu/kernel_scaling.sbatch
+```
 
 ### Limitations
 
