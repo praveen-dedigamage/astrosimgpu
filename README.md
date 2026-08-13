@@ -78,10 +78,9 @@ The default build is CPU-only and needs nothing but a C++17 compiler.
 
 An OpenMP target offload of the astrocyte update exists behind a build flag
 that is off by default. It has been built with NVHPC and run on an NVIDIA
-GH200, where it produces results identical to the host build and is four to
-five times faster than 72 Grace cores at populations of a million astrocytes
-and above. The population below which the host wins has not been measured on
-the current build. See "GPU offload" below and `docs/gpu-port.md`.
+GH200, where it produces results identical to the host build. It is faster than
+72 Grace cores above about 40,000 astrocytes, reaching 5.6x at ten million, and
+slower below that. See "GPU offload" below and `docs/gpu-port.md`.
 
 ## Why a second implementation
 
@@ -201,32 +200,46 @@ across teams and 128 threads, with the device routines generated for
 **Correctness.** All 86 component checks pass on the device, and the offloaded
 run reproduces the host result exactly in every configuration tested.
 
-**Throughput**, astrocyte update phase only, normalised per timestep. Host is
-72 Grace cores, built with nvc++; device is one GH200.
+**Throughput**, astrocyte update phase only, normalised per timestep. One
+sweep, one build: host is 72 Grace cores built with nvc++, device is one GH200.
 
 | astrocytes | host | device | |
 |---|---|---|---|
-| 1,000,000 | 582.4 us | 142.9 us | device 4.1x faster |
-| 10,000,000 | 5,962.4 us | 1,168.7 us | device 5.1x faster |
+| 100 | 3.3 us | 23.4 us | host 7.1x faster |
+| 1,000 | 4.2 us | 24.4 us | host 5.9x faster |
+| 10,000 | 10.9 us | 26.4 us | host 2.4x faster |
+| 40,000 | 30.0 us | 30.2 us | even |
+| 100,000 | 67.2 us | 37.6 us | device 1.8x faster |
+| 1,000,000 | 670.9 us | 141.0 us | device 4.8x faster |
+| 10,000,000 | 6,388.4 us | 1,142.3 us | device 5.6x faster |
 
-Keeping the state resident on the device rather than mapping it on every step
-improved the device figures threefold at both sizes: 435 to 143 microseconds at
-one million, and 3,515 to 1,169 at ten million. The improvement being the same
-factor across a tenfold change in population identifies the cause as per-step
-transfer rather than anything that scales with the data.
+Both costs are linear in the population above ten thousand cells, with a fixed
+cost per step that dominates below it:
 
-**The crossover population is not currently known.** Measurements at 100 to
-40,000 astrocytes exist but were taken before the residency change and with a
-different host compiler, so they cannot be placed on the same curve as the two
-rows above. Since the fixed per-step cost that made small populations
-unfavourable was largely the mapping that residency removes, the crossover is
-expected to be well below the 150,000 those older measurements implied. The
-sweep needs repeating on one build before any figure is quoted:
-
-```bash
-sbatch --export=ALL,SIZES="100 1000 10000 40000 100000 1000000 10000000",PRE=100,SIM=500 \
-       scripts/roihu/kernel_scaling.sbatch
 ```
+device  ~ 23 us + 0.111 ns per astrocyte
+host    ~  3 us + 0.650 ns per astrocyte
+```
+
+The marginal figures are consistent across every decade measured, so the
+kernel itself is **5.7 times cheaper per astrocyte** than 72 Grace cores. At ten
+million the measured ratio is 5.6, which is that asymptote reached.
+
+**The two lines cross at about 40,000 astrocytes.** Below that the device is
+launching a kernel over too few cells to cover its fixed cost; above it the
+marginal advantage takes over. Per-GPU population sizes implied by
+exascale-scale simulation are 10^5 to 10^6, where the measured advantage is
+between 1.8x and 4.8x.
+
+The device's 23 microsecond fixed cost is three device operations per step: the
+input transfer, the kernel launch, and the calcium transfer back. Removing the
+two transfers, by moving SIC delivery onto the device as well, would leave the
+launch alone and should bring the crossover down to roughly ten thousand.
+
+Keeping the state resident on the device rather than mapping it every step is
+what made these figures possible. Before that change the device cost 435
+microseconds per step at one million astrocytes against 141 now, and the fixed
+cost was 46 microseconds rather than 23.
 
 ### Limitations
 
