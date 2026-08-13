@@ -249,6 +249,16 @@ input transfer, the kernel launch, and the calcium transfer back. Removing the
 two transfers, by moving SIC delivery onto the device as well, would leave the
 launch alone and should bring the crossover down to roughly ten thousand.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/throughput-dark.svg">
+  <img alt="Astrocyte update cost per timestep against population size, log-log. The host
+  cost rises steeply while the device cost starts higher and rises more slowly, crossing
+  near forty thousand astrocytes." src="docs/img/throughput-light.svg">
+</picture>
+
+Regenerate with `python3 scripts/plot_throughput.py`, which reads
+`docs/data/throughput.csv` and needs nothing but a Python interpreter.
+
 ### What this measurement does not cover
 
 **Connectivity was held almost constant across the whole sweep.** The
