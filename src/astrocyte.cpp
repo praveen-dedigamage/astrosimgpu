@@ -1,9 +1,10 @@
 #include "astrosimgpu/astrocyte.hpp"
 
-#include "astrosimgpu/astrocyte_kernel.hpp"
-
 #include <algorithm>
 #include <cmath>
+#include <string>
+
+#include "astrosimgpu/astrocyte_kernel.hpp"
 
 namespace astrosimgpu {
 
@@ -54,8 +55,12 @@ void AstrocytePopulation::build(index_t count, const AstrocyteParams& base,
 namespace {
 #if defined(ASTROSIMGPU_KOKKOS)
 /// Copy a host vector into a freshly allocated device View.
-Kokkos::View<real*> to_device(const char* name, const vec<real>& host) {
-    Kokkos::View<real*> d(Kokkos::view_alloc(Kokkos::WithoutInitializing, name), host.size());
+///
+/// The label must be a std::string. Kokkos reads a raw const char* as a
+/// pointer to existing memory, for constructing an unmanaged View, and rejects
+/// it here with a static assertion about pointer-to-memory allocation.
+Kokkos::View<real*> to_device(const std::string& name, const vec<real>& host) {
+    Kokkos::View<real*> d(Kokkos::view_alloc(name, Kokkos::WithoutInitializing), host.size());
     auto mirror = Kokkos::create_mirror_view(d);
     for (std::size_t i = 0; i < host.size(); ++i) {
         mirror(i) = host[i];
