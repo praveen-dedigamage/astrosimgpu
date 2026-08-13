@@ -31,8 +31,13 @@ CPU_BIN=build-cpu/astrosimgpu
 GPU_BIN=build-gpu/astrosimgpu
 CONFIG=config/kernel_scaling.json
 
-PRE=1000
-SIM=5000
+# The measurement is a cost per timestep, so the number of steps only has to
+# be large enough to average over. At very large populations a single step
+# costs milliseconds, and 60,000 of them is a wasted hour.
+#
+#   sbatch --export=ALL,SIZES=10000000,PRE=100,SIM=500 scripts/roihu/kernel_scaling.sbatch
+PRE=${PRE:-1000}
+SIM=${SIM:-5000}
 DT=0.1
 STEPS=$(awk -v p=$PRE -v s=$SIM -v d=$DT 'BEGIN{printf "%d", (p+s)/d}')
 
