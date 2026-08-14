@@ -163,18 +163,17 @@ holds it constant in between. Run `config/use_case.json` and
 correlation and the firing rates against k = 1.
 
 **Outcome.** If the measures are unchanged up to some k, the SIC is being
-communicated orders of magnitude more often than the dynamics require. That is
-a property of the model rather than of this implementation, so it applies
-equally to `sic_connection` in NEST, where the same signal is sent every step.
+communicated orders of magnitude more often than the dynamics require, and that
+is a property of the model rather than of any particular implementation of it.
 If the measures change immediately, the continuous exchange is load-bearing and
-the cost is unavoidable, which is itself worth knowing before designing a
+its cost is unavoidable, which is worth knowing before designing any
 distributed version around it.
 
 **Cost.** A small code change and eight CPU runs. No GPU needed.
 
-**This is the one with a result beyond this codebase.** Spike communication in
-neuronal network simulators is sparse and event-driven, and has been optimised
-for decades. Continuous third-factor coupling has not.
+**This is the one whose result is about the model rather than the code.** Spike
+communication in neuronal network simulators is sparse and event-driven, and
+has been optimised for decades. Continuous third-factor coupling has not.
 
 ---
 

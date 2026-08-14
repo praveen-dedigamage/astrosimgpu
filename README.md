@@ -12,8 +12,16 @@ It reimplements the model from:
 > <https://doi.org/10.1371/journal.pcbi.1013503>
 
 The reference implementation is Python running on the NEST simulator, published
-at <https://doi.org/10.5281/zenodo.13757202>. This one is standalone C++17 and
-does not use NEST.
+at <https://doi.org/10.5281/zenodo.13757202>, with user-facing examples in the
+NEST documentation:
+<https://nest-simulator.readthedocs.io/en/v3.8/auto_examples/astrocytes/>.
+This one is standalone C++17 and does not use NEST.
+
+The single-cell dynamics go back to Li & Rinzel (1994) and Nadkarni & Jung
+(2003). What that paper contributes, and what this implementation follows, is
+an adapted tripartite connectivity scheme and a set of parameters fitted
+against experimental astrocyte recordings. Both are described there; neither is
+inherited from the earlier models.
 
 ## What it does
 
@@ -240,9 +248,8 @@ million the measured ratio is 5.6, which is that asymptote reached.
 
 **The two lines cross at about 40,000 astrocytes.** Below that the device is
 launching a kernel over too few cells to cover its fixed cost; above it the
-marginal advantage takes over. Per-GPU population sizes implied by
-exascale-scale simulation are 10^5 to 10^6, where the measured advantage is
-between 1.8x and 4.8x.
+marginal advantage takes over. Between 10^5 and 10^6 astrocytes the measured advantage is between 1.8x and
+4.8x.
 
 The device's 28 microsecond fixed cost is three device operations per step: the
 input transfer, the kernel launch, and the calcium transfer back. Removing the
@@ -285,23 +292,18 @@ the same hardware:
 Under the first, offloading the update addresses 4 % of the run and caps the
 achievable speedup near 1.04x. Under the second it addresses almost all of it.
 
-At the scale this work is ultimately aimed at, the delivery phases are the
-harder problem by a wide margin. Estimates put the human brain at 5 to 10 x
-10^10 astrocytes. Spread over an exascale machine of order 10^4 GPUs that is a
-few million astrocytes each, which the measurements above cover. The
-connectivity is not covered:
+As the network grows, the delivery phases become the harder problem by a wide
+margin, and they grow with the connectivity rather than with the cell count.
+The measurements above cover populations up to ten million cells; they do not
+cover the connectivity such a network would carry.
 
-```
-synapses            ~ 10^11 neurons x 10^4 in-degree   = 10^15
-tripartite attachments, at p_third ~ 0.5               = 5 x 10^14
-per GPU, over ~2.4 x 10^4 GPUs                         ~ 2 x 10^10
-at roughly 40 bytes per connection                     ~ 800 GB
-```
-
-Against 96 GB of device memory, before any cell state. Connectivity at that
-scale cannot be stored on the device and would have to be regenerated from the
-seed on demand, which the counter-based random numbers make possible in
-principle but which nothing here does today.
+A rough figure for the scale of that gap: a network of 10^7 cells at an
+in-degree of 10^4 has on the order of 10^11 synapses, of which some fraction
+recruit an astrocyte. At roughly 40 bytes per connection the resulting table is
+far larger than device memory, before any cell state. Connectivity at that
+scale cannot be resident and would have to be regenerated from the random seed
+on demand, which the counter-based generator makes possible in principle and
+which nothing here does today.
 
 So the kernel result is necessary and not sufficient. The open question is not
 how fast the astrocyte update can be made, but what the continuous
@@ -331,8 +333,12 @@ reasoning behind the decisions that are not obvious from the code.
 
 ## Model equations
 
-**Astrocyte** (Li & Rinzel 1994, extended by Nadkarni & Jung 2003). State
-variables are `[Ca2+]`, `[IP3]` and `h_IP3R`:
+**Astrocyte.** The calcium dynamics follow Li & Rinzel (1994) with the input
+and output mechanisms of Nadkarni & Jung (2003). The parameter values used here
+are not those of the original papers: they come from the fitting against
+experimental astrocyte data reported in Jiang et al. (2025), and are listed
+under "Parameter sources" below. State variables are `[Ca2+]`, `[IP3]` and
+`h_IP3R`:
 
 ```
 d[Ca]/dt  = J_channel - J_pump + J_leak + J_noise
@@ -375,8 +381,10 @@ increased by `b`. Each conductance is an alpha function driven by a
 two-variable cascade. It is normalised so that a spike of weight `W` gives a
 peak conductance of `W` at one `tau_syn` after the spike arrives.
 
-**Connectivity.** Neuron-to-neuron connections are drawn pairwise Bernoulli
-with probability `p_primary`. Each connection then recruits an astrocyte with
+**Connectivity.** This is the tripartite scheme introduced in Jiang et al.
+(2025) rather than anything from the earlier single-cell models.
+Neuron-to-neuron connections are drawn pairwise Bernoulli with probability
+`p_primary`. Each connection then recruits an astrocyte with
 probability `p_third_if_primary`. The astrocyte is taken from a pool assigned
 to the postsynaptic neuron, either as a contiguous block or at random. A
 recruited astrocyte receives the presynaptic spikes and sends a SIC to the

@@ -256,8 +256,8 @@ These are the points where mentor input would be most useful:
    or not anything happened. Calcium changes on a timescale of seconds, while
    `dt` is 0.1 ms. The signal may be transmitted far more often than the
    dynamics require. Whether a longer exchange interval leaves the results
-   unchanged has not been tested. This question also applies to
-   `sic_connection` in NEST.
+   unchanged has not been tested, and the answer would be a property of the
+   model rather than of this implementation.
 
 ## Staged plan
 
