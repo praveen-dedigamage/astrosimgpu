@@ -1,14 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=astrosimgpu-backends
 #SBATCH --account=project_2003397
-#SBATCH --partition=gputest
-#SBATCH --time=00:15:00
+#SBATCH --partition=gpumedium
+#SBATCH --time=00:30:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=72
 #SBATCH --gres=gpu:gh200:1
-#SBATCH --output=threeway-%j.out
-#SBATCH --error=threeway-%j.err
+#SBATCH --output=backends-%j.out
+#SBATCH --error=backends-%j.err
 
 # Compare all backends on one node, in one job. Any binary that is missing is
 # skipped. Build them first:
@@ -39,7 +39,7 @@ STEPS=$(awk -v s=$SIM -v d=0.1 'BEGIN{printf "%d", s/d}')
 declare -a NAMES=("host" "openmp-target" "kokkos" "cuda")
 declare -a BINS=("build-cpu/astrosimgpu" "build-gpu/astrosimgpu" "build-kokkos/astrosimgpu" \
                  "build-cuda/astrosimgpu")
-INDICES="0 1 2 3"
+INDICES="${!NAMES[@]}"
 
 echo "host   : $(hostname)   cores: $(nproc)"
 nvidia-smi --query-gpu=name --format=csv,noheader || true
@@ -74,7 +74,7 @@ echo
 
 # Only the astrocyte update is dispatched differently, so only it is comparable.
 echo "=============== astrocyte update, us/step ==============="
-printf "%-12s %13s %15s %13s %13s\n" \
+printf "%-12s %14s %14s %14s %14s\n" \
     "astrocytes" "host" "openmp-target" "kokkos" "cuda"
 for n in $SIZES; do
     line=$(printf "%-12s" "$n")
@@ -87,12 +87,12 @@ for n in $SIZES; do
         else
             v="-"
         fi
-        line="$line $(printf '%13s' "$v")"
+        line="$line $(printf '%14s' "$v")"
     done
     echo "$line"
 done
 
 echo
-echo "The two device backends run the same per-cell function and move data at"
-echo "the same points, so a difference between them is the dispatch mechanism"
-echo "and not the arithmetic."
+echo "All backends share the per-cell function and move data at the same points,"
+echo "so any difference is dispatch. CUDA is the reference: if the portable"
+echo "routes match it, portability is free here."

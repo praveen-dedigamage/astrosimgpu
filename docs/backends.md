@@ -7,7 +7,7 @@ nothing else.
 
 | backend | build | status |
 |---|---|---|
-| host | `make OPENMP=1` | validated on Roihu |
+| host | `make OPENMP=1 CXX=nvc++` | validated on Roihu |
 | OpenMP target | `make OFFLOAD=1 CXX=nvc++` | validated on a GH200 |
 | Kokkos | `cmake -DASTROSIMGPU_KOKKOS=ON` | builds and runs correctly on a GH200 |
 | native CUDA | `cmake -DASTROSIMGPU_CUDA=ON` | **not yet compiled** |
@@ -77,6 +77,10 @@ failure mode this project has already lost a day to.
 ## Building Kokkos
 
 Kokkos is a CMake package, so the Makefile does not support it.
+
+On Roihu use `nvc++` for the host build too. Lmod swaps `gcc` out when `nvhpc`
+loads, so the two compilers are not available at once, and objects from both
+link into undefined references to NVHPC runtime symbols.
 
 ```bash
 cmake -S . -B build-kokkos \

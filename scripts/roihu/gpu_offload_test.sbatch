@@ -15,10 +15,10 @@
 # Build both variants on the login node first:
 #
 #   module load nvhpc/26.3
-#   make clean
-#   make OPENMP=1 BUILD=build-cpu -j16
+#   make distclean
+#   make OPENMP=1 CXX=nvc++ BUILD=build-cpu -j16
 #   make OFFLOAD=1 CXX=nvc++ BUILD=build-gpu \
-#        OFFLOAD_FLAGS="-mp=gpu -gpu=cc90 -Minfo=mp" -j16
+#        OFFLOAD_FLAGS="-mp=gpu -gpu=cc90" -j16
 #
 # Then:
 #
@@ -41,9 +41,6 @@ GPU_TESTS=build-gpu/astrosimgpu_tests
 #          scripts/roihu/gpu_offload_test.sbatch
 CONFIG=${CONFIG:-config/use_case.json}
 SIMTIME=${SIMTIME:-60000}
-
-# The builds are checked against each other, not against a constant: a wrong
-# map direction leaves the output plausible but different.
 
 echo "config  : $CONFIG   sim-time: $SIMTIME ms"
 echo "host    : $(hostname)"
@@ -87,7 +84,9 @@ grep -E 'update astrocytes|update neurons|total|real-time' results/cmp-gpu/run.t
 echo "wall: ${GPU_TIME}s   correlation: $GPU_VAL"
 echo
 
-# Correctness is what this job is for; a large speedup is not expected.
+# Correctness is what this job is for; a large speedup is not expected. The two
+# builds are checked against each other rather than a constant, because a wrong
+# map direction leaves the output plausible but different.
 echo "=============== result ==============="
 echo "config               : $CONFIG  (-t $SIMTIME)"
 echo "CPU build            : $CPU_VAL"
