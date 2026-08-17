@@ -66,8 +66,37 @@ END {
     }
 }' "$raw" | sort -k1,1 -k2,2n
 
+# The seeds differ enormously in how strongly the network synchronises, so the
+# spread above is mostly between seeds and says little about the interval. The
+# comparison is paired: same seed, different interval.
 echo
-echo "The interval-1 row is the reference. A coarser interval that stays within"
-echo "the +/- is not changing the dynamics; one that moves outside it is."
+echo "=============== paired against interval 1, same seed ==============="
+printf "%-10s %-8s %22s %16s\n" "config" "interval" "correlation change" "rate change"
+awk -F, 'NR>1 {
+    if ($2 == 1) { c1[$1" "$3]=$4; r1[$1" "$3]=$5 }
+    key=$1" "$2; rows[key]=1
+}
+END {
+    while ((getline line < ARGV[1]) > 0) {
+        n=split(line, f, ",")
+        if (f[1]=="config" || n<5) continue
+        s=f[1]" "f[3]
+        if (!(s in c1)) continue
+        dc = f[4]-c1[s]; dr = f[5]-r1[s]
+        k=f[1]" "f[2]; m[k]++; sc[k]+=dc; sc2[k]+=dc*dc; sr[k]+=dr; sr2[k]+=dr*dr
+    }
+    for (k in m) {
+        split(k, p, " ")
+        if (p[2]==1) continue
+        cm=sc[k]/m[k]; rm=sr[k]/m[k]
+        printf "%-10s %-8s %+10.4f +/- %-8.4f %+8.4f +/- %-7.4f\n", p[1], p[2],
+               cm, sqrt(sc2[k]/m[k]-cm*cm), rm, sqrt(sr2[k]/m[k]-rm*rm)
+    }
+}' "$raw" | sort -k1,1 -k2,2n
+
+echo
+echo "A change smaller than its own +/- is not a change. Read these rows, not the"
+echo "means above: the seeds differ far more from each other than the interval"
+echo "moves any one of them."
 echo
 echo "Raw values in $raw"

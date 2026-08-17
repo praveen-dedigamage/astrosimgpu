@@ -1,5 +1,6 @@
 #include "astrosimgpu/json.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
@@ -254,9 +255,27 @@ Json Json::parse_file(const std::string& path) {
     return parse(buffer.str());
 }
 
+void Json::collect_unused(const std::string& prefix, std::vector<std::string>& out) const {
+    if (type_ == Type::Object) {
+        for (const auto& [key, value] : object_) {
+            const bool asked = std::find(asked_.begin(), asked_.end(), key) != asked_.end();
+            if (!asked) {
+                out.push_back(prefix.empty() ? key : prefix + "." + key);
+            } else {
+                value.collect_unused(prefix.empty() ? key : prefix + "." + key, out);
+            }
+        }
+    }
+}
+
 const Json& Json::operator[](const std::string& key) const {
     if (type_ != Type::Object) {
         return null_json();
+    }
+    // Every get_to routes through here, so recording the key here records
+    // every lookup. collect_unused then reports whatever nobody asked for.
+    if (std::find(asked_.begin(), asked_.end(), key) == asked_.end()) {
+        asked_.push_back(key);
     }
     const auto it = object_.find(key);
     return it == object_.end() ? null_json() : it->second;

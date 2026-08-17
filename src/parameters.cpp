@@ -188,6 +188,19 @@ ModelConfig load_config(const std::string& path) {
         throw std::runtime_error("connectivity.pool_size must be at least 1");
     }
 
+    // A key nobody read is almost always a stale binary or a typo. Both would
+    // otherwise run happily and produce a result that looks fine.
+    std::vector<std::string> unused;
+    root.collect_unused("", unused);
+    if (!unused.empty()) {
+        std::string msg = "unrecognised keys in " + path + ":";
+        for (const std::string& k : unused) {
+            msg += "\n  " + k;
+        }
+        msg += "\nEither the name is wrong or this binary predates the option.";
+        throw std::runtime_error(msg);
+    }
+
     return cfg;
 }
 
