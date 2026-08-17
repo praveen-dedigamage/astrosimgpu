@@ -90,10 +90,10 @@ that is off by default. It has been built with NVHPC and run on an NVIDIA
 GH200 through OpenMP target offload, Kokkos and native CUDA, all three
 producing results identical to the host build. On the astrocyte update alone the
 device is faster than 72 Grace cores above roughly 27,000 astrocytes, reaching
-5.5x at ten million. The three device backends agree to within about ten per
-cent. That is one phase of the simulation measured with the connectivity held
-almost constant; see "GPU offload" below for what it does and does not
-establish.
+5.5x at ten million. The three device backends have marginal costs within 4 % of
+each other and differ only in fixed cost. That is one phase of the simulation
+measured with the connectivity held almost constant; see "GPU offload" below for
+what it does and does not establish.
 
 ## Why a second implementation
 
@@ -173,7 +173,7 @@ Command line options:
 | `config/scale_1000.json` | Ten times larger, in-degree held constant so the regime is preserved. |
 | `config/scale_1000_saturated.json` | Ten times larger with the connection probability fixed, so the network saturates. A throughput probe, not a model. |
 | `config/kernel_scaling.json` | Fixed neuron population, astrocyte count set with `--astrocytes`. Isolates kernel throughput; most astrocytes are unconnected at large counts, so it measures one phase rather than a network. |
-| `config/paper_sparse.json` | The reference "Sparse" benchmark model. Reproduces the published mean firing rate to 0.33 %. |
+| `config/paper_sparse.json` | The reference "Sparse" benchmark model. Reproduces the published mean firing rate to 0.04 %. |
 | `config/quick.json` | Small and short. For checking a build only. |
 
 `synapse.sic_interval` sets how often the astrocytic current is exchanged, in
