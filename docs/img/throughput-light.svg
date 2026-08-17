@@ -1,17 +1,15 @@
 <svg width="100%" viewBox="0 0 760 430" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, Segoe UI, sans-serif" role="img" aria-labelledby="title desc">
 <title id="title">Astrocyte update cost per timestep against population size</title>
-<desc id="desc">Log-log plot. The host cost rises steeply with population while the device cost starts higher but rises more slowly, so the two cross near forty thousand astrocytes and the device is several times cheaper above a million.</desc>
+<desc id="desc">Log-log plot. The host cost rises steeply with population while the device cost starts higher but rises more slowly, so the two cross near forty thousand astrocytes. The three device backends lie almost on top of one another, within about ten per cent.</desc>
 <rect width="760" height="430" fill="#fcfcfb"/>
 <line x1="78.0" y1="44" x2="78.0" y2="372" stroke="#e4e3df" stroke-width="1"/>
-<text x="78.0" y="392" fill="#52514e" font-size="12" text-anchor="middle">100</text>
-<line x1="176.4" y1="44" x2="176.4" y2="372" stroke="#e4e3df" stroke-width="1"/>
-<text x="176.4" y="392" fill="#52514e" font-size="12" text-anchor="middle">1k</text>
-<line x1="274.8" y1="44" x2="274.8" y2="372" stroke="#e4e3df" stroke-width="1"/>
-<text x="274.8" y="392" fill="#52514e" font-size="12" text-anchor="middle">10k</text>
-<line x1="373.2" y1="44" x2="373.2" y2="372" stroke="#e4e3df" stroke-width="1"/>
-<text x="373.2" y="392" fill="#52514e" font-size="12" text-anchor="middle">100k</text>
-<line x1="471.6" y1="44" x2="471.6" y2="372" stroke="#e4e3df" stroke-width="1"/>
-<text x="471.6" y="392" fill="#52514e" font-size="12" text-anchor="middle">1M</text>
+<text x="78.0" y="392" fill="#52514e" font-size="12" text-anchor="middle">1k</text>
+<line x1="201.0" y1="44" x2="201.0" y2="372" stroke="#e4e3df" stroke-width="1"/>
+<text x="201.0" y="392" fill="#52514e" font-size="12" text-anchor="middle">10k</text>
+<line x1="324.0" y1="44" x2="324.0" y2="372" stroke="#e4e3df" stroke-width="1"/>
+<text x="324.0" y="392" fill="#52514e" font-size="12" text-anchor="middle">100k</text>
+<line x1="447.0" y1="44" x2="447.0" y2="372" stroke="#e4e3df" stroke-width="1"/>
+<text x="447.0" y="392" fill="#52514e" font-size="12" text-anchor="middle">1M</text>
 <line x1="570.0" y1="44" x2="570.0" y2="372" stroke="#e4e3df" stroke-width="1"/>
 <text x="570.0" y="392" fill="#52514e" font-size="12" text-anchor="middle">10M</text>
 <line x1="78" y1="372.0" x2="570" y2="372.0" stroke="#e4e3df" stroke-width="1"/>
@@ -28,26 +26,38 @@
 <line x1="78" y1="44" x2="78" y2="372" stroke="#b4b2a9" stroke-width="1"/>
 <text x="78" y="26" fill="#0b0b0b" font-size="15" font-weight="500">Astrocyte update, microseconds per timestep</text>
 <text x="324" y="416" fill="#52514e" font-size="12" text-anchor="middle">astrocytes</text>
-<line x1="334.0" y1="44" x2="334.0" y2="372" stroke="#b4b2a9" stroke-width="1" stroke-dasharray="3 3"/>
-<text x="341.0" y="58" fill="#52514e" font-size="12">crossover ~40k</text>
-<path d="M78.0,322.6 L176.4,314.0 L274.8,280.7 L334.0,244.4 L373.2,215.7 L471.6,133.7 L570.0,53.5" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<circle cx="78.0" cy="322.6" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="176.4" cy="314.0" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="274.8" cy="280.7" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="334.0" cy="244.4" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="373.2" cy="215.7" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="471.6" cy="133.7" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="570.0" cy="53.5" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="584" cy="53.5" r="4.5" fill="#2a78d6"/>
-<text x="594" y="57.5" fill="#0b0b0b" font-size="12">host, 72 Grace cores</text>
-<path d="M78.0,253.3 L176.4,251.7 L274.8,248.9 L334.0,244.2 L373.2,236.3 L471.6,189.3 L570.0,114.8" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<circle cx="78.0" cy="253.3" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="176.4" cy="251.7" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="274.8" cy="248.9" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="334.0" cy="244.2" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="373.2" cy="236.3" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="471.6" cy="189.3" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="570.0" cy="114.8" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="584" cy="114.8" r="4.5" fill="#eb6834"/>
-<text x="594" y="118.8" fill="#0b0b0b" font-size="12">OpenMP target</text>
+<line x1="254.1" y1="44" x2="254.1" y2="372" stroke="#b4b2a9" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="261.1" y="58" fill="#52514e" font-size="12">crossover ~27k</text>
+<path d="M78.0,311.9 L201.0,265.5 L324.0,212.7 L447.0,138.4 L570.0,56.4" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="78.0" cy="311.9" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="201.0" cy="265.5" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="324.0" cy="212.7" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="447.0" cy="138.4" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="570.0" cy="56.4" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="584" cy="56.4" r="4.5" fill="#2a78d6"/>
+<text x="594" y="60.4" fill="#0b0b0b" font-size="12">host, 72 Grace cores</text>
+<path d="M78.0,253.5 L201.0,246.5 L324.0,233.7 L447.0,188.4 L570.0,114.7" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="78.0" cy="253.5" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="201.0" cy="246.5" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="324.0" cy="233.7" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="447.0" cy="188.4" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="570.0" cy="114.7" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="584" cy="114.7" r="4.5" fill="#eb6834"/>
+<text x="594" y="118.7" fill="#0b0b0b" font-size="12">OpenMP target</text>
+<path d="M78.0,254.1 L201.0,248.2 L324.0,235.6 L447.0,190.4 L570.0,115.7" fill="none" stroke="#1baf7a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="78.0" cy="254.1" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="201.0" cy="248.2" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="324.0" cy="235.6" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="447.0" cy="190.4" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="570.0" cy="115.7" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="584" cy="115.7" r="4.5" fill="#1baf7a"/>
+<text x="594" y="119.7" fill="#0b0b0b" font-size="12">Kokkos</text>
+<path d="M78.0,264.3 L201.0,253.1 L324.0,243.8 L447.0,192.5 L570.0,117.4" fill="none" stroke="#eda100" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="78.0" cy="264.3" r="4.5" fill="#eda100" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="201.0" cy="253.1" r="4.5" fill="#eda100" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="324.0" cy="243.8" r="4.5" fill="#eda100" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="447.0" cy="192.5" r="4.5" fill="#eda100" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="570.0" cy="117.4" r="4.5" fill="#eda100" stroke="#fcfcfb" stroke-width="2"/>
+<circle cx="584" cy="117.4" r="4.5" fill="#eda100"/>
+<text x="594" y="121.4" fill="#0b0b0b" font-size="12">native CUDA</text>
 </svg>

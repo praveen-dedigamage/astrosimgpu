@@ -28,7 +28,7 @@ THEMES = {
         "muted": "#52514e",
         "grid": "#e4e3df",
         "axis": "#b4b2a9",
-        "series": ["#2a78d6", "#eb6834", "#1baf7a"],
+        "series": ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"],
     },
     "dark": {
         "surface": "#1a1a19",
@@ -36,14 +36,18 @@ THEMES = {
         "muted": "#c3c2b7",
         "grid": "#2f2f2d",
         "axis": "#5f5e5a",
-        "series": ["#3987e5", "#d95926", "#199e70"],
+        "series": ["#3987e5", "#d95926", "#199e70", "#c98500"],
     },
 }
 
+# Palette slots 1-4 in fixed order; a line chart uses the adjacent pairlist,
+# which this order clears. Series are directly labelled, which the light-mode
+# contrast of slot 4 requires.
 SERIES = [
     ("host_us", "host, 72 Grace cores"),
     ("openmp_target_us", "OpenMP target"),
     ("kokkos_us", "Kokkos"),
+    ("cuda_us", "native CUDA"),
 ]
 
 W, H = 760, 430
@@ -89,7 +93,8 @@ def make_svg(data, mode):
     add('<title id="title">Astrocyte update cost per timestep against population size</title>')
     add('<desc id="desc">Log-log plot. The host cost rises steeply with population while '
         'the device cost starts higher but rises more slowly, so the two cross near forty '
-        'thousand astrocytes and the device is several times cheaper above a million.</desc>')
+        'thousand astrocytes. The three device backends lie almost on top of one '
+        'another, within about ten per cent.</desc>')
     add(f'<rect width="{W}" height="{H}" fill="{t["surface"]}"/>')
 
     # Grid, recessive: decade lines only.
@@ -115,11 +120,11 @@ def make_svg(data, mode):
         f'text-anchor="middle">astrocytes</text>')
 
     # Crossover marker, drawn under the data so it never obscures a mark.
-    cross = 40000
+    cross = 27000
     add(f'<line x1="{px(cross):.1f}" y1="{T}" x2="{px(cross):.1f}" y2="{H-B}" '
         f'stroke="{t["axis"]}" stroke-width="1" stroke-dasharray="3 3"/>')
     add(f'<text x="{px(cross)+7:.1f}" y="{T+14}" fill="{t["muted"]}" font-size="12">'
-        f'crossover ~40k</text>')
+        f'crossover ~27k</text>')
 
     for idx, (key, label) in enumerate(SERIES):
         pts = [(d["n"], d[key]) for d in data if d[key] is not None]

@@ -86,11 +86,13 @@ The default build is CPU-only and needs nothing but a C++17 compiler.
 
 An OpenMP target offload of the astrocyte update exists behind a build flag
 that is off by default. It has been built with NVHPC and run on an NVIDIA
-GH200, where it produces results identical to the host build. On the astrocyte
-update alone it is faster than 72 Grace cores above about 40,000 astrocytes,
-reaching 5.6x at ten million, and slower below that. That is one phase of the
-simulation measured with the connectivity held almost constant; see "GPU
-offload" below for what it does and does not establish.
+GH200 through OpenMP target offload, Kokkos and native CUDA, all three
+producing results identical to the host build. On the astrocyte update alone the
+device is faster than 72 Grace cores above roughly 27,000 astrocytes, reaching
+5.5x at ten million. The three device backends agree to within about ten per
+cent. That is one phase of the simulation measured with the connectivity held
+almost constant; see "GPU offload" below for what it does and does not
+establish.
 
 ## Why a second implementation
 
@@ -221,50 +223,45 @@ across teams and 128 threads, with the device routines generated for
 **Correctness.** All 86 component checks pass on the device, and the offloaded
 run reproduces the host result exactly in every configuration tested.
 
-**Throughput**, astrocyte update phase only, normalised per timestep. One
-sweep, one build: host is 72 Grace cores built with nvc++, device is one GH200.
+**Throughput**, astrocyte update phase only, per timestep. One job, one build
+per backend, threads pinned. Host is 72 Grace cores; the three device backends
+run on one GH200.
 
-| astrocytes | host | device | |
-|---|---|---|---|
-| 100 | 4.0 us | 28.0 us | host 7.1x faster |
-| 1,000 | 5.1 us | 29.3 us | host 5.8x faster |
-| 10,000 | 13.0 us | 31.7 us | host 2.4x faster |
-| 40,000 | 36.0 us | 36.2 us | even |
-| 100,000 | 80.6 us | 45.2 us | device 1.8x faster |
-| 1,000,000 | 805.1 us | 169.2 us | device 4.8x faster |
-| 10,000,000 | 7,666.1 us | 1,370.8 us | device 5.6x faster |
-
-Both costs are linear in the population above ten thousand cells, with a fixed
-cost per step that dominates below it:
-
-```
-device  ~ 28 us + 0.133 ns per astrocyte
-host    ~  4 us + 0.762 ns per astrocyte
-```
-
-The marginal figures hold from ten thousand astrocytes to ten million, so the
-kernel itself is **5.7 times cheaper per astrocyte** than 72 Grace cores. At ten
-million the measured ratio is 5.6, which is that asymptote reached.
-
-**The two lines cross at about 40,000 astrocytes.** Below that the device is
-launching a kernel over too few cells to cover its fixed cost; above it the
-marginal advantage takes over. Between 10^5 and 10^6 astrocytes the measured advantage is between 1.8x and
-4.8x.
-
-The device's 28 microsecond fixed cost is three device operations per step: the
-input transfer, the kernel launch, and the calcium transfer back. Removing the
-two transfers, by moving SIC delivery onto the device as well, would leave the
-launch alone and should bring the crossover down to roughly ten thousand.
+| astrocytes | host | OpenMP target | Kokkos | CUDA |
+|---|---|---|---|---|
+| 1,000 | 5.4 us | 27.9 | 27.4 | 20.6 |
+| 10,000 | 19.9 us | 33.9 | 32.3 | 28.2 |
+| 100,000 | 87.7 us | 48.6 | 46.1 | 36.6 |
+| 1,000,000 | 705.5 us | 173.6 | 164.1 | 154.7 |
+| 10,000,000 | 7,061.6 us | 1,371.6 | 1,335.1 | 1,272.5 |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/throughput-dark.svg">
-  <img alt="Astrocyte update cost per timestep against population size, log-log. The host
-  cost rises steeply while the device cost starts higher and rises more slowly, crossing
-  near forty thousand astrocytes." src="docs/img/throughput-light.svg">
+  <img alt="Astrocyte update cost per timestep against population size, log-log.
+  The host cost rises steeply while the three device backends start higher, rise
+  more slowly, and lie almost on top of one another." src="docs/img/throughput-light.svg">
 </picture>
 
 Regenerate with `python3 scripts/plot_throughput.py`, which reads
 `docs/data/throughput.csv` and needs nothing but a Python interpreter.
+
+**The three device backends agree to within about ten per cent.** Against native
+CUDA at a million astrocytes, Kokkos costs 6 % more and OpenMP target 12 %; at
+ten million, 5 % and 8 %. All three call the same per-cell function and move
+data at the same points, so the difference is dispatch and nothing else. A
+portability layer is close to free here.
+
+CUDA's advantage is in the fixed cost rather than the kernel: about 20.5 us per
+step against 27.6 for the two portable routes. That moves the crossover with the
+host from roughly 40,000 astrocytes to roughly 27,000.
+
+Above ten thousand cells all four costs are linear in the population. Marginal
+cost per astrocyte per step is 0.706 ns on the host against 0.124 ns on the
+device, so the kernel is **5.7 times cheaper per cell** than 72 Grace cores, and
+the measured ratio at ten million is 5.5.
+
+Below the crossover the host wins, because a kernel launch costs more than the
+arithmetic on a few thousand cells.
 
 ### What this measurement does not cover
 
