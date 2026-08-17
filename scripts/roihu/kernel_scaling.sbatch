@@ -10,18 +10,9 @@
 #SBATCH --output=scaling-%j.out
 #SBATCH --error=scaling-%j.err
 
-# Experiment 1: is the offload cost per launch, or per byte?
-#
-# The neuron population is fixed and only the astrocyte count varies, so the
-# host work is constant and the only thing changing is the size of the
-# offloaded loop. Time is reported per timestep, which is what makes the
-# question answerable:
-#
-#   flat as the population grows   -> the cost is launch and mapping overhead
-#   growing linearly               -> the cost is transfer volume
-#   falling                        -> the device was starved at small sizes
-#
-# Build both variants first, as in gpu_offload_test.sbatch.
+# Astrocyte kernel cost against population size. Neurons are fixed, so the host
+# work is constant and only the offloaded loop grows. Reported per timestep:
+# flat means the cost is per launch, linear means it is per byte.
 
 set -uo pipefail
 
@@ -31,17 +22,12 @@ CPU_BIN=build-cpu/astrosimgpu
 GPU_BIN=build-gpu/astrosimgpu
 CONFIG=config/kernel_scaling.json
 
-# The measurement is a cost per timestep, so the number of steps only has to
-# be large enough to average over. At very large populations a single step
-# costs milliseconds, and 60,000 of them is a wasted hour.
-#
+# Fewer steps are fine at large populations: one step costs milliseconds there.
 #   sbatch --export=ALL,SIZES=10000000,PRE=100,SIM=500 scripts/roihu/kernel_scaling.sbatch
 PRE=${PRE:-1000}
 SIM=${SIM:-5000}
 DT=0.1
-# Only the recorded window, not the transient. The phase timers start at the
-# end of the transient, so dividing by the total step count understates every
-# figure by the ratio between them.
+# Recorded window only. The timers start after the transient.
 STEPS=$(awk -v s=$SIM -v d=$DT 'BEGIN{printf "%d", s/d}')
 
 SIZES="${SIZES:-100 1000 10000 40000}"
@@ -50,9 +36,8 @@ echo "host   : $(hostname)   cores: $(nproc)"
 nvidia-smi --query-gpu=name --format=csv,noheader || true
 echo "steps  : $STEPS measured   (${PRE}ms transient discarded, ${SIM}ms recorded, dt ${DT}ms)"
 echo "threads: ${SLURM_CPUS_PER_TASK:-72} requested for the host runs"
-# Confirmed rather than assumed: the host figures are quoted as a many-core
-# baseline, and a serial run would produce a plausible-looking number that
-# means something entirely different.
+# Confirm the host build really is threaded. A serial run would look plausible
+# and mean something else.
 "$CPU_BIN" --config "$CONFIG" --astrocytes 100 -t 1 -p 0 -o /tmp/threadcheck.$$ 2>/dev/null \
     | grep -i "openmp threads" || echo "threads: NOT REPORTED -- host build may lack OpenMP"
 echo
@@ -80,6 +65,5 @@ for n in $SIZES; do
 done
 
 echo
-echo "Read the gpu_us/step column down the page. If it barely moves while the"
-echo "population grows tenfold, the cost is per launch and keeping the arrays"
-echo "resident on the device is the whole problem."
+echo "Read gpu_us/step down the page: flat as the population grows tenfold means"
+echo "the cost is per launch."

@@ -9,12 +9,8 @@
 
 namespace astrosimgpu {
 
-/// Connections held in compressed-row form, grouped by source.
-///
-/// Delivery walks one contiguous run per firing source, which is the access
-/// pattern a spike-driven update wants and the one that ports cleanly to a
-/// device kernel. Short-term plasticity state, when enabled, is per synapse
-/// and sits in arrays parallel to `target`.
+// Compressed row storage, grouped by source: delivering one cell's output
+// walks a contiguous run. STP state, when enabled, is parallel to `target`.
 struct ConnectionSet {
     vec<index_t> row_start;  ///< size = number of sources + 1
     vec<index_t> target;
@@ -30,22 +26,9 @@ struct ConnectionSet {
     void finalise(index_t sources, const StpParams& stp);
 };
 
-/// Wall-clock time attributed to each phase of state propagation.
-///
-/// The decomposition deliberately matches the one used in the reference
-/// benchmarks, so a profile from this simulator can be read against the
-/// published CPU numbers:
-///
-///   input_gen   drawing the background input for every cell
-///   update      advancing the dynamical state of every cell
-///   spike_cd    collocation and delivery of spikes
-///   sic_gd      gathering and delivery of the astrocytic current
-///   deliver     moving arrived input into the target cells
-///
-/// The split is the point of the instrumentation rather than a by-product:
-/// `update` is per-cell and parallelises, while the delivery phases carry the
-/// communication that does not, and knowing the ratio between them is what
-/// decides where an offload is worth attempting.
+// Wall clock per phase, using the same split as the reference benchmarks so
+// the two profiles can be compared. update parallelises; the delivery phases
+// carry the communication and do not.
 struct PhaseProfile {
     double input_gen = 0.0;
     double update_astro = 0.0;
@@ -61,7 +44,6 @@ struct PhaseProfile {
     [[nodiscard]] double other() const { return total - accounted(); }
 };
 
-/// Summary of what was built, printed at start-up and written to the run log.
 struct NetworkStats {
     index_t n_astro = 0;
     index_t n_exc = 0;
@@ -77,10 +59,7 @@ class Network {
 public:
     explicit Network(const ModelConfig& config);
 
-    /// Build populations and connectivity. Deterministic for a given seed.
-    void build();
-
-    /// Run the pre-simulation transient followed by the recorded window.
+    void build();   // deterministic for a given seed
     void run(Recorder& recorder);
 
     [[nodiscard]] const NetworkStats& stats() const { return stats_; }
@@ -95,15 +74,9 @@ private:
     void apply_arrivals(std::int64_t step);
     void drive_astrocytes(std::int64_t step);
 
-    /// Effective weight of one synapse under short-term depression and
-    /// facilitation (Tsodyks, Uziel & Markram, 2000):
-    ///
-    ///   x <- 1 + (x - x u - 1) exp(-dt / tau_rec)
-    ///   u <- U + u (1 - U) exp(-dt / tau_fac)
-    ///
-    /// evaluated in that order at each presynaptic spike, with the release
-    /// probability u and the available resources x multiplying the nominal
-    /// weight. With tau_fac = 0 this reduces to pure depression.
+    // Tsodyks-Markram: x <- 1 + (x - x u - 1) exp(-dt/tau_rec),
+    //                   u <- U + u (1 - U) exp(-dt/tau_fac), in that order.
+    // tau_fac = 0 gives pure depression.
     real stp_weight(ConnectionSet& set, index_t synapse, real t_now) const;
 
     ModelConfig cfg_;
@@ -118,21 +91,15 @@ private:
     ConnectionSet neuron_astro_;  ///< excitatory neuron -> astrocyte
     ConnectionSet astro_neuron_;  ///< astrocyte -> neuron (SIC)
 
-    /// Ring buffers of pending input, indexed [slot][cell]. Separate rings for
-    /// the two conductances and for the continuous astrocytic current, so no
-    /// per-arrival sorting or event queue is needed.
+    // Pending input, [slot][cell]. A signal emitted at step t with delay d
+    // lands in slot (t+d) % slots. No event queue, no sorting.
     vec<vec<real>> ring_exc_, ring_inh_, ring_sic_, ring_astro_;
     int ring_slots_ = 1;
 
-    /// Astrocytes that can take part in the delivery phases at all.
-    ///
-    /// Both lists are fixed by the connectivity and are built once. Without
-    /// them the delivery loops scan the whole population every step to find
-    /// the few cells that matter: at ten million astrocytes with eight
-    /// thousand connections that was three quarters of the run time, and it
-    /// scaled with the population rather than with the connectivity.
-    vec<index_t> sic_sources_;        ///< have at least one outgoing SIC connection
-    vec<index_t> astro_input_sinks_;  ///< are the target of at least one neuron
+    // Built once from the connectivity. Without these the delivery phases scan
+    // the whole population every step to find the few cells that matter.
+    vec<index_t> sic_sources_;        // have an outgoing SIC connection
+    vec<index_t> astro_input_sinks_;  // are the target of some neuron
 
     vec<Spike> spike_buffer_;
 };

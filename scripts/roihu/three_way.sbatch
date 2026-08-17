@@ -10,29 +10,24 @@
 #SBATCH --output=threeway-%j.out
 #SBATCH --error=threeway-%j.err
 
-# Compare the backends on one node, in one job, on the same data.
+# Compare all backends on one node, in one job. Any binary that is missing is
+# skipped. Build them first:
 #
-# Build all three first:
-#
-#   module load nvhpc/26.3
-#   make distclean
 #   make OPENMP=1 CXX=nvc++ BUILD=build-cpu -j16
 #   make OFFLOAD=1 CXX=nvc++ BUILD=build-gpu OFFLOAD_FLAGS="-mp=gpu -gpu=cc90" -j16
 #   bash scripts/roihu/build_kokkos.sh
 #   cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release -DASTROSIMGPU_CUDA=ON
 #   cmake --build build-cuda -j16
 #
-# Correctness comes first. A backend that computes something different is not
-# a data point about performance, and the failure is silent: the simulation
-# still runs and the output still looks plausible.
+# Correctness first: a backend that computes something else is not a data point
+# about performance, and it fails silently.
 
 set -uo pipefail
 
 module load nvhpc/26.3
 
-# Pin threads for every backend, not just the one that complains about it.
-# Kokkos warns when this is unset; the other two do not, and an unpinned host
-# baseline against a pinned one would make the device look better than it is.
+# Pin for everything, not just Kokkos which is the only one that warns. An
+# unpinned host baseline flatters the device.
 export OMP_PROC_BIND=spread
 export OMP_PLACES=threads
 
@@ -44,8 +39,6 @@ STEPS=$(awk -v s=$SIM -v d=0.1 'BEGIN{printf "%d", s/d}')
 declare -a NAMES=("host" "openmp-target" "kokkos" "cuda")
 declare -a BINS=("build-cpu/astrosimgpu" "build-gpu/astrosimgpu" "build-kokkos/astrosimgpu" \
                  "build-cuda/astrosimgpu")
-# Any backend whose binary is absent is skipped, so the harness is useful before
-# all four exist.
 INDICES="0 1 2 3"
 
 echo "host   : $(hostname)   cores: $(nproc)"
@@ -65,13 +58,7 @@ for i in $INDICES; do
 done
 echo
 
-# ---------------------------------------------------------------------------
-# 1. Do all three agree?
-#
-# The regime transition is the check: 0.0106 asynchronous against 0.4177
-# bursting. Any backend that does not reproduce both is computing something
-# else, whatever its timings say.
-# ---------------------------------------------------------------------------
+# The regime transition is the check: 0.0106 asynchronous, 0.4177 bursting.
 echo "=============== correctness ==============="
 printf "%-14s %14s %14s\n" "backend" "use_case" "bursting"
 for i in $INDICES; do
@@ -85,12 +72,7 @@ done
 echo "expected       0.0106 and 0.4177"
 echo
 
-# ---------------------------------------------------------------------------
-# 2. Throughput of the astrocyte update.
-#
-# Only that phase is dispatched differently between the three, so only that
-# phase is comparable. Everything else is identical host code.
-# ---------------------------------------------------------------------------
+# Only the astrocyte update is dispatched differently, so only it is comparable.
 echo "=============== astrocyte update, us/step ==============="
 printf "%-12s %13s %15s %13s %13s\n" \
     "astrocytes" "host" "openmp-target" "kokkos" "cuda"

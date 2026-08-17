@@ -10,8 +10,7 @@
 #SBATCH --output=offload-%j.out
 #SBATCH --error=offload-%j.err
 
-# Validate the OpenMP target offload of the astrocyte update against the CPU
-# build, on the same machine and in the same job.
+# Validate the offload against the host build, same machine, same job.
 #
 # Build both variants on the login node first:
 #
@@ -25,14 +24,8 @@
 #
 #   sbatch scripts/roihu/gpu_offload_test.sbatch
 #
-# The gres name is lowercase gh200. Slurm gres names are case-sensitive, and
-# gpu:GH200:1 matches nothing: the job is then admitted with zero cores and
-# fails with a message about the request being unsupported.
-#
-# Memory is not requested. It comes with the GPU allocation, and asking for it
-# is overridden.
-#
-# Change --account above if this project has no Roihu GPU allocation.
+# gres names are case-sensitive: gpu:GH200:1 matches nothing and the job is
+# admitted with zero cores. Do not request memory; it comes with the GPU.
 
 set -uo pipefail
 
@@ -49,10 +42,8 @@ GPU_TESTS=build-gpu/astrosimgpu_tests
 CONFIG=${CONFIG:-config/use_case.json}
 SIMTIME=${SIMTIME:-60000}
 
-# The check is that the two builds agree with each other. A hardcoded value
-# would only be valid for one configuration, and the failure being guarded
-# against is a wrong map direction, which makes the offloaded run disagree with
-# the host run while still producing plausible output.
+# The builds are checked against each other, not against a constant: a wrong
+# map direction leaves the output plausible but different.
 
 echo "config  : $CONFIG   sim-time: $SIMTIME ms"
 echo "host    : $(hostname)"
@@ -69,21 +60,13 @@ for f in "$CPU_BIN" "$GPU_BIN" "$GPU_TESTS"; do
     fi
 done
 
-# ---------------------------------------------------------------------------
-# 1. Component tests, built with offload enabled.
-#
-# These run on the device wherever the offloaded path is reached, so a failure
-# here localises the problem to a specific quantity rather than to the whole
-# simulation.
-# ---------------------------------------------------------------------------
+# Component tests first: a failure here names the quantity that is wrong.
 echo "=============== component tests (offload build) ==============="
 "$GPU_TESTS"
 TESTS_RC=$?
 echo
 
-# ---------------------------------------------------------------------------
-# 2. Same simulation both ways.
-# ---------------------------------------------------------------------------
+
 echo "=============== CPU build ==============="
 CPU_START=$SECONDS
 OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8} "$CPU_BIN" \
@@ -104,13 +87,7 @@ grep -E 'update astrocytes|update neurons|total|real-time' results/cmp-gpu/run.t
 echo "wall: ${GPU_TIME}s   correlation: $GPU_VAL"
 echo
 
-# ---------------------------------------------------------------------------
-# 3. Verdict.
-#
-# Only the astrocyte update is offloaded, and it is 4.3% of the run time on
-# this configuration. A large speedup is not expected and its absence is not a
-# problem. Correctness is what this job is for.
-# ---------------------------------------------------------------------------
+# Correctness is what this job is for; a large speedup is not expected.
 echo "=============== result ==============="
 echo "config               : $CONFIG  (-t $SIMTIME)"
 echo "CPU build            : $CPU_VAL"

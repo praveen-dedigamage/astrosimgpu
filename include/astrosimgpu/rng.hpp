@@ -16,12 +16,9 @@
 
 namespace astrosimgpu {
 
-/// splitmix64 finalizer over a mixed (seed, stream, counter) word.
-///
-/// Free functions rather than methods so a device kernel can draw without
-/// carrying an object across the host boundary. CounterRng below is a
-/// convenience wrapper over exactly these, so host and device draws agree by
-/// construction rather than by being kept in step.
+// splitmix64 over (seed, stream, counter). Free functions because a device
+// kernel cannot carry a host object; CounterRng below wraps these, and a test
+// pins the two to agree.
 #ifdef ASTROSIMGPU_OFFLOAD
 #pragma omp declare target
 #endif
@@ -35,16 +32,13 @@ ASTROSIMGPU_RNG_FN std::uint64_t rng_bits(std::uint64_t seed, std::uint64_t stre
     return z ^ (z >> 31);
 }
 
-/// Uniform on [0, 1) from a single counter value.
+// Uniform on [0, 1).
 ASTROSIMGPU_RNG_FN real rng_uniform(std::uint64_t seed, std::uint64_t stream, std::uint64_t counter) {
     return static_cast<real>(rng_bits(seed, stream, counter) >> 11) *
            (1.0 / 9007199254740992.0);
 }
 
-/// One standard normal, Box-Muller over counters 0 and 1 of a stream.
-///
-/// This is what a freshly constructed CounterRng returns from its first
-/// normal() call, and the test suite checks that equality holds.
+// One standard normal, Box-Muller over counters 0 and 1.
 ASTROSIMGPU_RNG_FN real rng_normal(std::uint64_t seed, std::uint64_t stream) {
     real u1 = rng_uniform(seed, stream, 0);
     if (u1 <= 1e-300) {
@@ -59,12 +53,8 @@ ASTROSIMGPU_RNG_FN real rng_normal(std::uint64_t seed, std::uint64_t stream) {
 #pragma omp end declare target
 #endif
 
-/// Counter-based random number generator.
-///
-/// Every draw is a pure function of (seed, stream, counter), so a cell can
-/// reproduce its own noise without reading any shared state. That keeps the
-/// per-cell update independent, which matters both for OpenMP determinism and
-/// for a later port where each cell is handled by its own thread.
+// Counter-based: every draw is a pure function of (seed, stream, counter), so
+// a cell reproduces its own noise without touching shared state.
 class CounterRng {
 public:
     CounterRng() = default;
@@ -80,10 +70,7 @@ public:
     /// Uniform on [lo, hi).
     real uniform(real lo, real hi) { return lo + (hi - lo) * uniform(); }
 
-    /// Standard normal, via Box-Muller.
-    ///
-    /// Both variates of a pair are used, so two consecutive calls cost one
-    /// transcendental pair rather than two.
+    // Keeps the second variate, so two calls cost one transcendental pair.
     real normal() {
         if (has_spare_) {
             has_spare_ = false;
@@ -103,10 +90,8 @@ public:
 
     real normal(real mean, real stddev) { return mean + stddev * normal(); }
 
-    /// Normal truncated by redrawing until the value falls inside [lo, hi].
-    ///
-    /// This mirrors nest.math.redraw() used by the reference model, which
-    /// resamples rather than clipping, so the distribution keeps its shape.
+    // Mirrors nest.math.redraw(): resamples rather than clipping, so the
+    // distribution keeps its shape.
     real normal_redraw(real mean, real stddev, real lo, real hi, int max_tries = 1000) {
         for (int i = 0; i < max_tries; ++i) {
             const real v = normal(mean, stddev);
@@ -117,10 +102,8 @@ public:
         return std::min(std::max(mean, lo), hi);
     }
 
-    /// Number of events in one bin of a Poisson process.
-    ///
-    /// Knuth's method. The rates used here give lambda well under 1 per step,
-    /// so the loop almost always exits on the first test.
+    // Knuth. Rates here give lambda well under 1 per step, so the loop almost
+    // always exits on the first test.
     int poisson(real lambda) {
         if (lambda <= 0.0) {
             return 0;

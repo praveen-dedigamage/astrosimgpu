@@ -1,11 +1,6 @@
-// Native CUDA backend for the astrocyte update.
-//
-// The kernel body is astro_advance from astrocyte_kernel.hpp, the same function
-// the host, OpenMP target and Kokkos paths call. nvcc compiles it with
-// __host__ __device__ because ASTROSIMGPU_FN expands that way under __CUDACC__.
-// Only the launch and the memory management are written here, which is the
-// point: a comparison between the four backends is then a comparison of
-// dispatch and nothing else.
+// Native CUDA backend. The kernel body is astro_advance, the same function the
+// other backends call -- ASTROSIMGPU_FN expands to __host__ __device__ under
+// nvcc. Only the launch and the memory management live here.
 
 #include <cstdio>
 #include <cstdlib>
@@ -16,10 +11,8 @@ namespace astrosimgpu {
 
 namespace {
 
-/// Abort on a failed CUDA call rather than continuing with wrong results.
-///
-/// A silent failure here produces a simulation that runs and reports plausible
-/// output, which is the failure mode that has already cost this project a day.
+// Abort rather than continue with wrong results. A silent failure here gives a
+// run that completes and reports plausible numbers.
 void check(cudaError_t err, const char* what, const char* file, int line) {
     if (err != cudaSuccess) {
         std::fprintf(stderr, "CUDA error at %s:%d during %s: %s\n", file, line, what,
@@ -30,9 +23,7 @@ void check(cudaError_t err, const char* what, const char* file, int line) {
 
 #define CUDA_CHECK(call) check((call), #call, __FILE__, __LINE__)
 
-/// One astrocyte per thread. The whole per-cell state stays in registers for
-/// the duration of the step; nothing here touches global memory between
-/// substeps.
+// One astrocyte per thread. State stays in registers across the substeps.
 __global__ void astro_update_kernel(index_t n, AstroConstants c, real h_step, int substeps,
                                     real noise_std, bool independent_noise, real shared_noise,
                                     std::uint64_t noise_seed, std::uint64_t noise_index,
@@ -107,7 +98,7 @@ CudaAstro* cuda_astro_create(index_t n, const real* Ca, const real* IP3, const r
     s->IP3_0 = device_copy(IP3_0, n);
     s->tau_IP3 = device_copy(tau_IP3, n);
     s->delta_IP3 = device_copy(delta_IP3, n);
-    // Synaptic input starts empty and is overwritten every step.
+    // Overwritten every step.
     CUDA_CHECK(cudaMalloc(&s->ip3_input, static_cast<std::size_t>(n) * sizeof(real)));
     CUDA_CHECK(cudaMemset(s->ip3_input, 0, static_cast<std::size_t>(n) * sizeof(real)));
     return s;
@@ -152,9 +143,8 @@ void cuda_astro_update(CudaAstro* s, const AstroConstants& c, real h_step, int s
     if (s == nullptr || s->n == 0) {
         return;
     }
-    // 128 threads per block matches what the OpenMP target compiler chose for
-    // the same loop, so the two are launched with comparable geometry rather
-    // than one being handed an advantage.
+    // 128 to match the block size the OpenMP target compiler chose for the
+    // same loop, so neither is handed an advantage.
     constexpr int block = 128;
     const int grid = static_cast<int>((s->n + block - 1) / block);
     astro_update_kernel<<<grid, block>>>(s->n, c, h_step, substeps, noise_std, independent_noise,

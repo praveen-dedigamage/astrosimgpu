@@ -1,13 +1,11 @@
 #!/bin/bash
-# Build astrosimgpu on Roihu's Grace (ARM) side.
+# Build on Roihu's Grace (ARM) side.
 #
-#   ssh roihu-gpu.csc.fi          # NOT roihu-cpu.csc.fi
+#   ssh roihu-gpu.csc.fi          # not roihu-cpu
 #   bash scripts/roihu/build.sh
 #
-# Roihu has two login nodes with different architectures, and binaries do not
-# cross between them: "Software compiled on Roihu-CPU nodes only works on
-# Roihu-CPU nodes." The GPU nodes are the ARM ones, so everything that will
-# ever run beside a GH200 has to be built from roihu-gpu.csc.fi.
+# Binaries do not cross between Roihu's two login architectures, and the GPU
+# nodes are the ARM ones.
 
 set -euo pipefail
 
@@ -19,16 +17,9 @@ fi
 
 echo "== architecture: $(uname -m) =="
 
-# Module names are not hard-coded: CSC renames and re-versions them, and a
-# stale name here would cost more time than the discovery does. Find what is
-# actually installed with:
-#
+# Module names change, so find them rather than hard-coding:
 #   module spider nvhpc
-#   module spider cuda
-#   module spider gcc
-#
-# then set COMPILER_MODULES to the result, e.g.
-#   export COMPILER_MODULES="nvhpc/24.7 cuda/12.6"
+# then e.g. export COMPILER_MODULES="nvhpc/26.3"
 COMPILER_MODULES="${COMPILER_MODULES:-}"
 
 if [[ -n "$COMPILER_MODULES" ]]; then
@@ -44,10 +35,9 @@ fi
 echo "== compiler =="
 ${CXX:-c++} --version | head -2
 
-# OpenMP matters here in a way it does not on a laptop: a Grace superchip has
-# 72 cores, and the per-cell update is the phase meant to use them. Building
-# single-threaded would make the baseline meaningless.
 BUILD_DIR="${BUILD_DIR:-build-roihu}"
+
+# OpenMP on: a Grace superchip has 72 cores and a serial baseline is useless.
 
 if command -v cmake >/dev/null 2>&1; then
     echo "== cmake build into $BUILD_DIR =="

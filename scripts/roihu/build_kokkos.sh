@@ -8,8 +8,6 @@
 #
 #   KOKKOS_ROOT=/path/to/kokkos/install bash scripts/roihu/build_kokkos.sh
 #
-# The course repository from CSC's Portable GPU Programming ships Kokkos
-# exercises and may already have an installation worth pointing at.
 
 set -euo pipefail
 
@@ -30,9 +28,8 @@ if [[ -z "$KOKKOS_ROOT" ]]; then
         git clone --depth 1 --branch master https://github.com/kokkos/kokkos.git "$PREFIX/src"
     fi
 
-    # Kokkos_ARCH_HOPPER90 is the GH200's compute capability. CUDA_LAMBDA is
-    # required because the update is dispatched through a lambda; without it
-    # the failure appears as template errors rather than a missing option.
+    # HOPPER90 is the GH200. CUDA_LAMBDA is needed for the dispatch lambda;
+    # without it the failure shows up as template errors.
     cmake -S "$PREFIX/src" -B "$PREFIX/build" \
         -DCMAKE_INSTALL_PREFIX="$PREFIX/install" \
         -DCMAKE_BUILD_TYPE=Release \
@@ -48,8 +45,6 @@ fi
 echo
 echo "== Kokkos at $KOKKOS_ROOT =="
 
-# Kokkos records the compiler it was built with, and mixing compilers between
-# Kokkos and its consumer produces link errors rather than a clear message.
 cmake -S . -B build-kokkos \
     -DCMAKE_BUILD_TYPE=Release \
     -DASTROSIMGPU_KOKKOS=ON \
@@ -60,10 +55,8 @@ cmake --build build-kokkos -j16
 echo
 echo "== build complete =="
 
-# A CUDA-enabled Kokkos binary links against libcuda.so.1, the driver library,
-# which is only present on nodes that have a GPU. Running it on the login node
-# fails before main() with a missing shared library, so the check happens in an
-# allocation rather than here.
+# A CUDA build links libcuda.so.1, which only exists where a GPU does, so the
+# check runs in an allocation rather than on the login node.
 if [[ -n "${SLURM_JOB_ID:-}" ]] || command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
     echo "== tests =="
     ./build-kokkos/astrosimgpu_tests

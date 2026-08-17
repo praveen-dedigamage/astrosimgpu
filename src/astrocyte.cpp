@@ -54,11 +54,8 @@ void AstrocytePopulation::build(index_t count, const AstrocyteParams& base,
 
 namespace {
 #if defined(ASTROSIMGPU_KOKKOS)
-/// Copy a host vector into a freshly allocated device View.
-///
-/// The label must be a std::string. Kokkos reads a raw const char* as a
-/// pointer to existing memory, for constructing an unmanaged View, and rejects
-/// it here with a static assertion about pointer-to-memory allocation.
+// Label must be std::string: a raw const char* is read as a pointer to
+// existing memory and rejected.
 using HostSpan = Kokkos::View<real*, Kokkos::HostSpace, Kokkos::MemoryUnmanaged>;
 
 Kokkos::View<real*> to_device(const std::string& name, const vec<real>& host) {
@@ -71,7 +68,7 @@ Kokkos::View<real*> to_device(const std::string& name, const vec<real>& host) {
     return d;
 }
 
-/// Copy a device View back into a host vector.
+
 void from_device(const Kokkos::View<real*>& d, vec<real>& host) {
     auto mirror = Kokkos::create_mirror_view(d);
     Kokkos::deep_copy(mirror, d);
@@ -177,10 +174,8 @@ void AstrocytePopulation::device_push_input() {
 #endif
 #if defined(ASTROSIMGPU_KOKKOS)
     if (device_ready_) {
-        // An unmanaged View over the vector's own memory, so the copy goes
-        // straight to the device. Staging through a mirror costs an extra
-        // pass over the array on the host every step, which at a million
-        // cells is more than the transfer.
+        // Unmanaged view over the vector itself: staging through a mirror
+        // costs an extra host pass per step.
         HostSpan h(ip3_input_.data(), ip3_input_.size());
         Kokkos::deep_copy(d_ip3_input_, h);
     }
@@ -241,8 +236,8 @@ void AstrocytePopulation::update(const TimeGrid& time, std::int64_t step, std::u
     const int substeps = time.substeps;
     const AstroConstants c = constants();
 
-    // The injected current is held constant across noise_dt, so all cells
-    // change value at the same instants even though each draws its own.
+    // Held constant across noise_dt, matching NEST's noise_generator: all
+    // cells change at the same instants, each with its own draw.
     const int steps_per_noise =
         std::max(1, static_cast<int>(std::llround(input_.noise_dt / time.dt)));
     const auto noise_index = static_cast<std::uint64_t>(step / steps_per_noise);
@@ -252,9 +247,8 @@ void AstrocytePopulation::update(const TimeGrid& time, std::int64_t step, std::u
     const real shared_noise =
         (noise_std > 0.0 && !independent) ? noise_std * rng_normal(noise_seed, noise_index) : 0.0;
 
-    // Raw pointers rather than the vectors themselves: the offloaded loop maps
-    // arrays, and using the same pointers on the host keeps the two loop
-    // bodies textually identical apart from the directive above them.
+    // Raw pointers so the host and offloaded loop bodies are identical apart
+    // from the directive.
     real* __restrict Ca = Ca_.data();
     real* __restrict IP3 = IP3_.data();
     real* __restrict hv = h_.data();
@@ -273,9 +267,7 @@ void AstrocytePopulation::update(const TimeGrid& time, std::int64_t step, std::u
 #endif
 
 #if defined(ASTROSIMGPU_KOKKOS)
-    // Same body as the other two backends, expressed as a Kokkos lambda. The
-    // per-cell function is shared, so only the dispatch differs and the three
-    // can be compared without the arithmetic being a variable.
+    // Same body, Kokkos dispatch. Only the launch differs.
     if (device_ready_) {
         auto Ca_d = d_Ca_;
         auto IP3_d = d_IP3_;
@@ -303,11 +295,7 @@ void AstrocytePopulation::update(const TimeGrid& time, std::int64_t step, std::u
                 ip3_d(i) = 0.0;
             });
         Kokkos::fence();
-        // The host copy is cleared by Network::clear_inputs, which walks only
-        // the cells some neuron projects to. Zeroing the whole array here as
-        // well was both redundant and, at a million cells, a million writes
-        // per timestep.
-        return;
+        return;  // host copy is cleared by Network::clear_inputs
     }
 #endif
 
@@ -341,8 +329,7 @@ void AstrocytePopulation::update(const TimeGrid& time, std::int64_t step, std::u
 }
 
 real AstrocytePopulation::sic_factor(index_t cell) const {
-    // y is the calcium excess over threshold expressed in nM; the state is in
-    // uM, hence the factor of 1000. The Heaviside term means no output until
+    // State is uM, threshold in nM, hence the 1000. Nothing is emitted until
     // the excess exceeds 1 nM, where ln y turns positive.
     const real y = (Ca_[cell] - p_.SIC_th) * 1000.0;
     if (y <= 1.0) {

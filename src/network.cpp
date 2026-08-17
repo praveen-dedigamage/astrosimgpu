@@ -11,7 +11,7 @@ namespace astrosimgpu {
 
 namespace {
 
-/// Build a compressed-row index from a per-source adjacency list.
+// Flatten a per-source adjacency list into compressed row form.
 template <typename T>
 void flatten(const vec<vec<T>>& per_source, vec<index_t>& row_start, vec<T>& flat) {
     row_start.assign(per_source.size() + 1, 0);
@@ -70,7 +70,7 @@ void Network::build() {
     stats_.n_neuron_to_astro = neuron_astro_.size();
     stats_.n_astro_to_neuron = astro_neuron_.size();
 
-    // Ring depth covers the longest delay in the network.
+    // Ring depth covers the longest delay.
     const real dt = cfg_.time.dt;
     int max_delay = 1;
     max_delay = std::max(max_delay, delay_to_steps(cfg_.syn.d_e, dt));
@@ -78,8 +78,7 @@ void Network::build() {
     max_delay = std::max(max_delay, delay_to_steps(cfg_.syn.d_a2n, dt));
     ring_slots_ = max_delay + 1;
 
-    // The delivery phases only ever touch astrocytes that the connectivity
-    // reaches. Collect them once rather than rediscovering them every step.
+    // Collect once rather than rediscovering every step.
     sic_sources_.clear();
     for (index_t a = 0; a < cfg_.N.N_astro; ++a) {
         if (astro_neuron_.row_start[a] < astro_neuron_.row_start[a + 1]) {
@@ -118,10 +117,8 @@ void Network::build_primary_connections(CounterRng& rng) {
     vec<vec<index_t>> a2n_targets(n_astro);
     vec<vec<index_t>> inh_targets(n_inh);
 
-    // Astrocyte pools are a property of the postsynaptic neuron and fixed for
-    // the lifetime of the network. The two tripartite calls in the reference
-    // model treat the excitatory and inhibitory targets as separate
-    // populations, so pools are assigned within each block.
+    // Pools belong to the postsynaptic neuron and are fixed for the run. The
+    // reference model makes two tripartite calls, so pools are per block.
     vec<vec<index_t>> pool(n_neurons);
     auto assign_pools = [&](index_t offset, index_t count) {
         for (index_t local = 0; local < count; ++local) {
@@ -155,12 +152,9 @@ void Network::build_primary_connections(CounterRng& rng) {
     assign_pools(0, n_exc);
     assign_pools(n_exc, n_inh);
 
-    // Several primary connections onto the same neuron may recruit the same
-    // astrocyte, and each attachment creates its own astrocyte-to-neuron
-    // connection. The rule is defined that way deliberately: it represents a
-    // neuron interacting with one astrocyte at several synapses. Keeping the
-    // duplicates is therefore the default, and it is what sets the scale of
-    // the current the neuron receives.
+    // Duplicates are intended: the rule attaches an astrocyte per primary
+    // connection, so a neuron can end up connected to the same astrocyte
+    // several times. That sets the scale of the current it receives.
     std::unordered_set<std::uint64_t> a2n_seen;
 
     auto connect_block = [&](index_t post_offset, index_t post_count) {
@@ -190,13 +184,11 @@ void Network::build_primary_connections(CounterRng& rng) {
         }
     };
 
-    // Two tripartite calls, matching the reference model: excitatory targets
-    // first, then inhibitory targets.
+    // Two calls, as the reference model does: excitatory targets then inhibitory.
     connect_block(0, n_exc);
     connect_block(n_exc, n_inh);
 
-    // Inhibitory neurons project to both populations and do not recruit
-    // astrocytes.
+    // Inhibitory neurons project to both populations, no astrocytes.
     for (index_t pre = 0; pre < n_inh; ++pre) {
         const index_t pre_global = n_exc + pre;
         for (index_t post = 0; post < n_neurons; ++post) {
@@ -285,8 +277,7 @@ void Network::deliver_spikes(const vec<Spike>& spikes, std::int64_t step) {
 }
 
 void Network::deliver_sic(std::int64_t step) {
-    // Only astrocytes with an outgoing connection can contribute. Everything
-    // else in the population is invisible to the neurons.
+    // Only astrocytes with an outgoing connection can contribute.
     for (const index_t a : sic_sources_) {
         const real factor = astro_.sic_factor(a);
         if (factor == 0.0) {
@@ -323,8 +314,7 @@ void Network::apply_arrivals(std::int64_t step) {
         sic[i] = 0.0;
     }
 
-    // Only astrocytes that some neuron projects to can have a pending entry,
-    // so the scan runs over those rather than over the population.
+    // Only cells some neuron projects to can have a pending entry.
     vec<real>& astro_in = ring_astro_[slot];
     for (const index_t a : astro_input_sinks_) {
         if (astro_in[a] != 0.0) {
@@ -365,23 +355,18 @@ void Network::run(Recorder& recorder) {
         progress_mark = 1;
     }
 
-    // Phase timing is only collected over the recorded window: the transient
-    // includes cold caches and a network that has not reached its working
-    // firing rate, and neither belongs in a profile used to decide what to
-    // offload.
+    // Timed over the recorded window only. The transient has cold caches and a
+    // network below its working firing rate.
     using clock = std::chrono::steady_clock;
     auto tick = [](const clock::time_point& since) {
         return std::chrono::duration<double>(clock::now() - since).count();
     };
-    // The recorded window is timed directly. Prorating the whole run by step
-    // count assumes the transient costs the same per step as the rest, which
-    // it does not, and the error showed up as a negative "other" row.
+    // Timed directly. Prorating by step count assumed the transient cost the
+    // same per step, which showed up as a negative "other" row.
     auto measured_start = clock::now();
 
-    // Keep the astrocyte state on the device for the whole run. The map
-    // clauses inside the update then find the arrays already present and move
-    // nothing, leaving only the two quantities that genuinely cross the
-    // boundary each step.
+    // State stays on the device for the run, so the per-step map clauses find
+    // the arrays present and move nothing.
     astro_.device_begin();
 
     for (std::int64_t step = 0; step < total; ++step) {
@@ -396,10 +381,7 @@ void Network::run(Recorder& recorder) {
             profile_.deliver += tick(t);
         }
 
-        // Generating the background input is per-cell work with no
-        // communication in it, so it is timed apart from delivery. Counting it
-        // as delivery overstated the communication cost by an order of
-        // magnitude at large populations.
+        // Per-cell work with no communication, so timed apart from delivery.
         t = clock::now();
         drive_astrocytes(step);
         if (measured) {
@@ -409,7 +391,7 @@ void Network::run(Recorder& recorder) {
         t = clock::now();
         astro_.device_push_input();
         astro_.update(cfg_.time, step, cfg_.seed);
-        // deliver_sic reads calcium on the host, so it has to come back.
+        // deliver_sic reads calcium on the host.
         astro_.device_pull_calcium();
         astro_.clear_inputs(astro_input_sinks_);
         if (measured) {

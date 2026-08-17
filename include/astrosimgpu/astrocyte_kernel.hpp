@@ -11,13 +11,8 @@
 
 namespace astrosimgpu {
 
-/// Decoration for functions that must be callable from whichever backend is
-/// compiled in.
-///
-/// OpenMP target offload needs `declare target` around the definitions; Kokkos
-/// needs each function marked individually, since KOKKOS_INLINE_FUNCTION
-/// expands to `__host__ __device__` under CUDA. Both reduce to plain `inline`
-/// in a host build, and the function bodies are identical in all three cases.
+// Every backend needs the per-cell functions marked differently. Bodies are
+// identical in all cases.
 #if defined(ASTROSIMGPU_KOKKOS)
 #define ASTROSIMGPU_FN KOKKOS_INLINE_FUNCTION
 #elif defined(__CUDACC__)
@@ -26,19 +21,11 @@ namespace astrosimgpu {
 #define ASTROSIMGPU_FN inline
 #endif
 
-/// Per-cell astrocyte update, free of member state.
-///
-/// The functions here take plain scalars and nothing else: no `this`, no
-/// `std::vector`, no reference into a class. That is what makes them callable
-/// from a device kernel, and it is the whole reason they were lifted out of
-/// AstrocytePopulation.
-///
-/// The host loop and any offloaded loop call the *same* function, so the two
-/// cannot drift apart. The maths is covered by the existing tests through the
-/// host path; only the mapping directives are new when offload is enabled.
+// Per-cell update, free of member state: no `this`, no std::vector, no
+// reference into a class. That is what makes it callable from a device kernel.
+// Host and device call the same function so they cannot drift apart.
 
-/// Parameters shared by every astrocyte, small enough to pass by value into a
-/// kernel rather than mapped as a pointer.
+// Shared by every cell; small enough to pass by value into a kernel.
 struct AstroConstants {
     real Kd_IP3_1;
     real Kd_IP3_2;
@@ -56,7 +43,7 @@ struct AstroConstants {
 #pragma omp declare target
 #endif
 
-/// Right-hand side of the three-variable Li-Rinzel system for one cell.
+// Right-hand side of the three-variable Li-Rinzel system.
 ASTROSIMGPU_FN void astro_derivatives(const AstroConstants& c, real Ca_tot, real IP3_0, real tau_IP3,
                               real Ca, real IP3, real h, real noise, real& dCa, real& dIP3,
                               real& dh) {
@@ -80,16 +67,12 @@ ASTROSIMGPU_FN void astro_derivatives(const AstroConstants& c, real Ca_tot, real
     dh = alpha_h * (1.0 - h) - beta_h * h;
 }
 
-/// Advance one astrocyte across a whole communication step.
-///
-/// State is taken and returned by reference so it can live in registers for
-/// the duration: nothing here reads or writes memory between substeps, which
-/// is the property the offloaded version depends on.
+// State is by reference so it can stay in registers across the substeps.
 ASTROSIMGPU_FN void astro_advance(const AstroConstants& c, real Ca_tot, real IP3_0, real tau_IP3,
                           real delta_IP3, real ip3_input, real noise, real h_step, int substeps,
                           real& Ca, real& IP3, real& h) {
-    // Spikes arriving this step deposit IP3 instantaneously; the synaptic
-    // drive enters the IP3 equation as a sum of delta functions.
+    // Arriving spikes are delta functions in the IP3 equation, so this is a
+    // jump rather than a term in the derivative.
     if (ip3_input != 0.0) {
         IP3 += delta_IP3 * ip3_input;
     }
@@ -111,8 +94,8 @@ ASTROSIMGPU_FN void astro_advance(const AstroConstants& c, real Ca_tot, real IP3
         IP3 += (h_step / 6.0) * (k1IP3 + 2.0 * k2IP3 + 2.0 * k3IP3 + k4IP3);
         h += (h_step / 6.0) * (k1h + 2.0 * k2h + 2.0 * k3h + k4h);
 
-        // Calcium is conserved between cytosol and ER, so the cytosolic
-        // concentration is confined to [0, Ca_tot]; h is a fraction.
+        // Total calcium is conserved, so Ca is bounded by Ca_tot. Not a guard
+        // against the integrator.
         Ca = Ca < 0.0 ? 0.0 : (Ca > Ca_tot ? Ca_tot : Ca);
         h = h < 0.0 ? 0.0 : (h > 1.0 ? 1.0 : h);
         IP3 = IP3 < 0.0 ? 0.0 : IP3;
