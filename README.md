@@ -245,20 +245,32 @@ run on one GH200.
 Regenerate with `python3 scripts/plot_throughput.py`, which reads
 `docs/data/throughput.csv` and needs nothing but a Python interpreter.
 
-**The three device backends agree to within about ten per cent.** Against native
-CUDA at a million astrocytes, Kokkos costs 6 % more and OpenMP target 12 %; at
-ten million, 5 % and 8 %. All three call the same per-cell function and move
-data at the same points, so the difference is dispatch and nothing else. A
-portability layer is close to free here.
+**The kernels are equally fast; the abstractions cost per launch.** Fitting
+each backend over the linear region gives
 
-CUDA's advantage is in the fixed cost rather than the kernel: about 20.5 us per
-step against 27.6 for the two portable routes. That moves the crossover with the
-host from roughly 40,000 astrocytes to roughly 27,000.
+```
+CUDA           20.2 us + 0.133 ns per astrocyte
+Kokkos         27.5 us + 0.131 ns per astrocyte
+OpenMP target  28.4 us + 0.137 ns per astrocyte
+host            5.0 us + 0.699 ns per astrocyte
+```
 
-Above ten thousand cells all four costs are linear in the population. Marginal
-cost per astrocyte per step is 0.706 ns on the host against 0.124 ns on the
-device, so the kernel is **5.7 times cheaper per cell** than 72 Grace cores, and
-the measured ratio at ten million is 5.5.
+The three device marginal costs agree to within 4 %, with Kokkos marginally
+below native CUDA. What separates them is the fixed cost: the two portable
+routes add 7 to 8 microseconds per timestep over CUDA and nothing per cell.
+
+That makes the penalty for portability size-dependent rather than a single
+figure. Against CUDA it is around 40 % at a thousand astrocytes, where the fixed
+cost is everything, and 4 to 11 % at a million, where it is diluted. Above a
+million it keeps shrinking.
+
+All four call the same per-cell function and move data at the same points, so
+the difference is dispatch and nothing else. Repeated runs agree to within a few
+per cent and the ordering is stable.
+
+The kernel is **5.3 times cheaper per cell** on the device than on 72 Grace
+cores. The lower fixed cost is also why native CUDA crosses the host at roughly
+27,000 astrocytes where the portable routes cross at about 40,000.
 
 Below the crossover the host wins, because a kernel launch costs more than the
 arithmetic on a few thousand cells.

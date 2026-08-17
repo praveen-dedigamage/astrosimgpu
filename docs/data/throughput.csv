@@ -6,6 +6,11 @@
 # neuron population, so connectivity is near-constant and most astrocytes are
 # unconnected at large counts: this is one phase, not a whole simulation.
 #
+# A repeat run agreed to within a few per cent at every size, with the ordering
+# CUDA < Kokkos < OpenMP target unchanged:
+#
+#   1000000  host 717.9  omp 174.8  kokkos 164.7  cuda 157.9
+#
 astrocytes,host_us,openmp_target_us,kokkos_us,cuda_us,pinned
 1000,5.4,27.9,27.4,20.6,yes
 10000,19.9,33.9,32.3,28.2,yes
