@@ -102,9 +102,26 @@ END {
     }
 }' "$raw" | sort -k1,1 -k2,2n
 
+# Averaging is still the wrong test when a seed changes regime. The correlation
+# is bimodal -- a network either synchronises or it does not -- so a seed that
+# drops out inflates the spread above and makes its own loss look like noise.
+# Count regimes instead.
 echo
-echo "A change smaller than its own +/- is not a change. Read these rows, not the"
-echo "means above: the seeds differ far more from each other than the interval"
-echo "moves any one of them."
+echo "=============== seeds that synchronise (correlation > 0.1) ==============="
+printf "%-10s %-8s %14s\n" "config" "interval" "synchronising"
+awk -F, 'NR>1 { k=$1" "$2; n[k]++; if ($4 > 0.1) sync[k]++ }
+END { for (k in n) { split(k, p, " ")
+        printf "%-10s %-8s %10d / %d\n", p[1], p[2], sync[k]+0, n[k] } }' "$raw" \
+    | sort -k1,1 -k2,2n
+
+echo
+echo "=============== per seed, bursting ==============="
+awk -F, '$1=="bursting" { printf "seed %-3s k=%-6s correlation %-9s rate %s\n", $3, $2, $4, $5 }' "$raw" \
+    | sort -k2,2n -k4,4n
+
+echo
+echo "A drop in the synchronising count is the result to read. The paired means"
+echo "above average a regime change against seeds that did not move, which makes"
+echo "the loss look like scatter."
 echo
 echo "Raw values in $raw"
