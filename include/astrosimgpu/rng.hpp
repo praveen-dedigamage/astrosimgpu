@@ -8,6 +8,8 @@
 #if defined(ASTROSIMGPU_KOKKOS)
 #include <Kokkos_Macros.hpp>
 #define ASTROSIMGPU_RNG_FN KOKKOS_INLINE_FUNCTION
+#elif defined(__CUDACC__)
+#define ASTROSIMGPU_RNG_FN __host__ __device__ inline
 #else
 #define ASTROSIMGPU_RNG_FN inline
 #endif

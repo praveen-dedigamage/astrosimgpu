@@ -6,6 +6,9 @@
 #if defined(ASTROSIMGPU_KOKKOS)
 #include <Kokkos_Core.hpp>
 #endif
+#if defined(ASTROSIMGPU_CUDA)
+#include "astrosimgpu/astrocyte_cuda.hpp"
+#endif
 #include "astrosimgpu/rng.hpp"
 #include "astrosimgpu/types.hpp"
 
@@ -102,6 +105,10 @@ private:
     DeviceArray d_Ca_, d_IP3_, d_h_, d_ip3_input_;
     DeviceArray d_Ca_tot_, d_IP3_0_, d_tau_IP3_, d_delta_IP3_;
     bool device_ready_ = false;
+#endif
+#if defined(ASTROSIMGPU_CUDA)
+    /// Opaque handle to the device buffers; see astrocyte_cuda.hpp.
+    CudaAstro* cuda_ = nullptr;
 #endif
 
     AstrocyteParams p_{};

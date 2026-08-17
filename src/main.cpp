@@ -99,7 +99,9 @@ std::string format_summary(const Network& net, const NetworkStats& s, double wal
 #endif
     // Which backend actually ran the astrocyte update. Without this a timing
     // cannot be attributed to anything.
-#if defined(ASTROSIMGPU_KOKKOS)
+#if defined(ASTROSIMGPU_CUDA)
+    os << "astrocyte backend     native CUDA\n";
+#elif defined(ASTROSIMGPU_KOKKOS)
     os << "astrocyte backend     Kokkos, "
        << Kokkos::DefaultExecutionSpace::name() << "\n";
 #elif defined(ASTROSIMGPU_OFFLOAD)

@@ -18,6 +18,9 @@ option(ASTROSIMGPU_OFFLOAD "Compile the astrocyte update as an OpenMP target reg
 # Both express the same loop over the same per-cell function; the point of
 # having both is to measure what the abstraction costs.
 option(ASTROSIMGPU_KOKKOS "Run the astrocyte update through Kokkos" OFF)
+# Native CUDA, as the reference point the two portable routes are measured
+# against. Also mutually exclusive with them.
+option(ASTROSIMGPU_CUDA "Run the astrocyte update through native CUDA" OFF)
 
 add_library(astrosimgpu_core
   src/astrocyte.cpp
@@ -38,7 +41,7 @@ if(MSVC)
 else()
   # Kokkos CUDA builds compile through nvcc or nvcc_wrapper, which reject some
   # of these and emit a great deal of noise for the rest.
-  if(ASTROSIMGPU_KOKKOS)
+  if(ASTROSIMGPU_KOKKOS OR ASTROSIMGPU_CUDA)
     target_compile_options(astrosimgpu_core PRIVATE -Wall)
   else()
     target_compile_options(astrosimgpu_core PRIVATE -Wall -Wextra -Wpedantic)
@@ -62,9 +65,24 @@ if(ASTROSIMGPU_OPENMP)
   endif()
 endif()
 
+if(ASTROSIMGPU_CUDA)
+  if(ASTROSIMGPU_OFFLOAD OR ASTROSIMGPU_KOKKOS)
+    message(FATAL_ERROR "The device backends are alternatives; enable exactly one")
+  endif()
+  enable_language(CUDA)
+  if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    # 90 is Hopper, which is what a GH200 is. Override for other hardware.
+    set(CMAKE_CUDA_ARCHITECTURES 90)
+  endif()
+  target_sources(astrosimgpu_core PRIVATE src/astrocyte_cuda.cu)
+  target_compile_definitions(astrosimgpu_core PUBLIC ASTROSIMGPU_CUDA)
+  set_target_properties(astrosimgpu_core PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+  message(STATUS "Native CUDA backend, architecture ${CMAKE_CUDA_ARCHITECTURES}")
+endif()
+
 if(ASTROSIMGPU_KOKKOS)
-  if(ASTROSIMGPU_OFFLOAD)
-    message(FATAL_ERROR "ASTROSIMGPU_KOKKOS and ASTROSIMGPU_OFFLOAD are alternatives; enable one")
+  if(ASTROSIMGPU_OFFLOAD OR ASTROSIMGPU_CUDA)
+    message(FATAL_ERROR "The device backends are alternatives; enable exactly one")
   endif()
   find_package(Kokkos REQUIRED)
   target_compile_definitions(astrosimgpu_core PUBLIC ASTROSIMGPU_KOKKOS)

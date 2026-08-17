@@ -83,6 +83,13 @@ void from_device(const Kokkos::View<real*>& d, vec<real>& host) {
 }  // namespace
 
 void AstrocytePopulation::device_begin() {
+#if defined(ASTROSIMGPU_CUDA)
+    if (size() > 0) {
+        cuda_ = cuda_astro_create(size(), Ca_.data(), IP3_.data(), h_.data(), Ca_tot_.data(),
+                                  IP3_0_.data(), tau_IP3_.data(), delta_IP3_.data());
+    }
+    return;
+#endif
 #if defined(ASTROSIMGPU_KOKKOS)
     if (size() == 0) {
         return;
@@ -119,6 +126,13 @@ void AstrocytePopulation::device_begin() {
 }
 
 void AstrocytePopulation::device_end() {
+#if defined(ASTROSIMGPU_CUDA)
+    if (cuda_ != nullptr) {
+        cuda_astro_destroy(cuda_, Ca_.data(), IP3_.data(), h_.data());
+        cuda_ = nullptr;
+    }
+    return;
+#endif
 #if defined(ASTROSIMGPU_KOKKOS)
     if (device_ready_) {
         from_device(d_Ca_, Ca_);
@@ -155,6 +169,12 @@ void AstrocytePopulation::clear_inputs(const vec<index_t>& cells) {
 }
 
 void AstrocytePopulation::device_push_input() {
+#if defined(ASTROSIMGPU_CUDA)
+    if (cuda_ != nullptr) {
+        cuda_astro_push_input(cuda_, ip3_input_.data());
+    }
+    return;
+#endif
 #if defined(ASTROSIMGPU_KOKKOS)
     if (device_ready_) {
         // An unmanaged View over the vector's own memory, so the copy goes
@@ -177,6 +197,12 @@ void AstrocytePopulation::device_push_input() {
 }
 
 void AstrocytePopulation::device_pull_calcium() {
+#if defined(ASTROSIMGPU_CUDA)
+    if (cuda_ != nullptr) {
+        cuda_astro_pull_calcium(cuda_, Ca_.data());
+    }
+    return;
+#endif
 #if defined(ASTROSIMGPU_KOKKOS)
     if (device_ready_) {
         HostSpan h(Ca_.data(), Ca_.size());
@@ -237,6 +263,14 @@ void AstrocytePopulation::update(const TimeGrid& time, std::int64_t step, std::u
     const real* __restrict IP3_0 = IP3_0_.data();
     const real* __restrict tau_IP3 = tau_IP3_.data();
     const real* __restrict delta_IP3 = delta_IP3_.data();
+
+#if defined(ASTROSIMGPU_CUDA)
+    if (cuda_ != nullptr) {
+        cuda_astro_update(cuda_, c, h_step, substeps, noise_std, independent, shared_noise,
+                          noise_seed, noise_index);
+        return;
+    }
+#endif
 
 #if defined(ASTROSIMGPU_KOKKOS)
     // Same body as the other two backends, expressed as a Kokkos lambda. The

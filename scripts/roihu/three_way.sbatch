@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=astrosimgpu-3way
+#SBATCH --job-name=astrosimgpu-backends
 #SBATCH --account=project_2003397
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00
@@ -10,7 +10,7 @@
 #SBATCH --output=threeway-%j.out
 #SBATCH --error=threeway-%j.err
 
-# Compare the three backends on one node, in one job, on the same data.
+# Compare the backends on one node, in one job, on the same data.
 #
 # Build all three first:
 #
@@ -19,6 +19,8 @@
 #   make OPENMP=1 CXX=nvc++ BUILD=build-cpu -j16
 #   make OFFLOAD=1 CXX=nvc++ BUILD=build-gpu OFFLOAD_FLAGS="-mp=gpu -gpu=cc90" -j16
 #   bash scripts/roihu/build_kokkos.sh
+#   cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release -DASTROSIMGPU_CUDA=ON
+#   cmake --build build-cuda -j16
 #
 # Correctness comes first. A backend that computes something different is not
 # a data point about performance, and the failure is silent: the simulation
@@ -39,8 +41,12 @@ PRE=${PRE:-100}
 SIM=${SIM:-500}
 STEPS=$(awk -v s=$SIM -v d=0.1 'BEGIN{printf "%d", s/d}')
 
-declare -a NAMES=("host" "openmp-target" "kokkos")
-declare -a BINS=("build-cpu/astrosimgpu" "build-gpu/astrosimgpu" "build-kokkos/astrosimgpu")
+declare -a NAMES=("host" "openmp-target" "kokkos" "cuda")
+declare -a BINS=("build-cpu/astrosimgpu" "build-gpu/astrosimgpu" "build-kokkos/astrosimgpu" \
+                 "build-cuda/astrosimgpu")
+# Any backend whose binary is absent is skipped, so the harness is useful before
+# all four exist.
+INDICES="0 1 2 3"
 
 echo "host   : $(hostname)   cores: $(nproc)"
 nvidia-smi --query-gpu=name --format=csv,noheader || true
@@ -48,7 +54,7 @@ echo "steps  : $STEPS measured"
 echo "binding: OMP_PROC_BIND=$OMP_PROC_BIND OMP_PLACES=$OMP_PLACES"
 echo
 
-for i in 0 1 2; do
+for i in $INDICES; do
     if [[ -x "${BINS[$i]}" ]]; then
         printf "%-14s %s\n" "${NAMES[$i]}" "$(./${BINS[$i]} --config config/quick.json \
             -o /tmp/bk.$$.$i 2>/dev/null >/dev/null; \
@@ -68,7 +74,7 @@ echo
 # ---------------------------------------------------------------------------
 echo "=============== correctness ==============="
 printf "%-14s %14s %14s\n" "backend" "use_case" "bursting"
-for i in 0 1 2; do
+for i in $INDICES; do
     [[ -x "${BINS[$i]}" ]] || continue
     a=$(OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-72} ./${BINS[$i]} --config config/use_case.json \
         -t 60000 -o "results/3w-${NAMES[$i]}-async" 2>/dev/null | awk '/mean pairwise/ {print $NF}')
@@ -86,10 +92,11 @@ echo
 # phase is comparable. Everything else is identical host code.
 # ---------------------------------------------------------------------------
 echo "=============== astrocyte update, us/step ==============="
-printf "%-12s %14s %16s %14s\n" "astrocytes" "host" "openmp-target" "kokkos"
+printf "%-12s %13s %15s %13s %13s\n" \
+    "astrocytes" "host" "openmp-target" "kokkos" "cuda"
 for n in $SIZES; do
     line=$(printf "%-12s" "$n")
-    for i in 0 1 2; do
+    for i in $INDICES; do
         if [[ -x "${BINS[$i]}" ]]; then
             t=$(OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-72} ./${BINS[$i]} \
                 --config config/kernel_scaling.json --astrocytes "$n" -t "$SIM" -p "$PRE" \
@@ -98,7 +105,7 @@ for n in $SIZES; do
         else
             v="-"
         fi
-        line="$line $(printf '%14s' "$v")"
+        line="$line $(printf '%13s' "$v")"
     done
     echo "$line"
 done

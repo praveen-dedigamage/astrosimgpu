@@ -20,6 +20,8 @@ namespace astrosimgpu {
 /// in a host build, and the function bodies are identical in all three cases.
 #if defined(ASTROSIMGPU_KOKKOS)
 #define ASTROSIMGPU_FN KOKKOS_INLINE_FUNCTION
+#elif defined(__CUDACC__)
+#define ASTROSIMGPU_FN __host__ __device__ inline
 #else
 #define ASTROSIMGPU_FN inline
 #endif

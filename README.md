@@ -202,7 +202,7 @@ compiler.
 
 A **Kokkos** backend for the same loop exists as an alternative, so the cost of
 a portability layer can be measured against the directives rather than assumed.
-It has not yet been compiled. See `docs/kokkos.md`.
+It has not yet been compiled. See `docs/backends.md`.
 
 ```bash
 cmake -S . -B build-kokkos -DASTROSIMGPU_KOKKOS=ON -DKokkos_ROOT=/path/to/kokkos

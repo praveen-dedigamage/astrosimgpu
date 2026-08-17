@@ -1,26 +1,40 @@
-# Kokkos backend
+# Device backends
 
-The astrocyte update can be dispatched through Kokkos instead of OpenMP target
-offload. Both express the same loop over the same per-cell function, so the
-difference between them is the abstraction and nothing else.
+The astrocyte update can be dispatched four ways: on the host, through OpenMP
+target offload, through Kokkos, or through native CUDA. All four call the same
+per-cell function, so a comparison between them measures the dispatch and
+nothing else.
 
-**This has not been compiled or run.** No Kokkos installation was available
-where it was written. Expect the first build to fail; what is done is the
-restructuring the first build would otherwise demand.
+| backend | build | status |
+|---|---|---|
+| host | `make OPENMP=1` | validated on Roihu |
+| OpenMP target | `make OFFLOAD=1 CXX=nvc++` | validated on a GH200 |
+| Kokkos | `cmake -DASTROSIMGPU_KOKKOS=ON` | builds and runs correctly on a GH200 |
+| native CUDA | `cmake -DASTROSIMGPU_CUDA=ON` | **not yet compiled** |
 
-## Why it was cheap to add
+Native CUDA exists as the reference point. If the two portable routes match it,
+portability is free here; if they do not, the difference is what portability
+costs, with a number rather than an assumption attached.
+
+## Why the later ones were cheap to add
 
 The per-cell calculation already lived in free functions taking plain scalars,
-because OpenMP target offload required that. Kokkos requires the same thing,
-differing only in how the function is marked:
+because OpenMP target offload required that. Kokkos and CUDA require the same
+thing, differing only in how the function is marked:
 
 ```cpp
 #if defined(ASTROSIMGPU_KOKKOS)
-#define ASTROSIMGPU_FN KOKKOS_INLINE_FUNCTION   // __host__ __device__ under CUDA
+#define ASTROSIMGPU_FN KOKKOS_INLINE_FUNCTION
+#elif defined(__CUDACC__)
+#define ASTROSIMGPU_FN __host__ __device__ inline
 #else
 #define ASTROSIMGPU_FN inline
 #endif
 ```
+
+`__CUDACC__` is defined only while nvcc is compiling a translation unit, so the
+decoration appears exactly where a device version is needed and the host build
+is untouched.
 
 `astro_advance`, `astro_derivatives` and the three random number functions
 carry that decoration. Their bodies are untouched, so all three backends run
@@ -28,19 +42,39 @@ identical arithmetic and the existing tests cover it through the host path.
 
 ## What differs
 
-| | OpenMP target | Kokkos |
-|---|---|---|
-| function marking | `declare target` around definitions | `KOKKOS_INLINE_FUNCTION` per function |
-| loop | `#pragma omp target teams distribute parallel for` | `Kokkos::parallel_for` with a lambda |
-| device memory | `map` clauses and `target enter data` | `Kokkos::View` with `deep_copy` |
-| portability | NVIDIA and AMD via the compiler | CUDA, HIP, SYCL, OpenMP, Serial from one source |
+| | OpenMP target | Kokkos | native CUDA |
+|---|---|---|---|
+| function marking | `declare target` around definitions | `KOKKOS_INLINE_FUNCTION` | `__host__ __device__` |
+| loop | `#pragma omp target teams distribute parallel for` | `Kokkos::parallel_for` | `__global__` kernel, explicit launch |
+| device memory | `map` and `target enter data` | `Kokkos::View`, `deep_copy` | `cudaMalloc`, `cudaMemcpy` |
+| portability | NVIDIA and AMD via the compiler | CUDA, HIP, SYCL, OpenMP, Serial | NVIDIA only |
+| compiler | any with offload support | any Kokkos supports | nvcc for one file |
 
 Data moves at the same four points in both: allocate and copy on entering a
 run, push the synaptic input each step, pull calcium back each step, copy out
 at the end. That was deliberate. If the transfer pattern differed the
 comparison would measure the pattern rather than the abstraction.
 
-## Building
+## Building CUDA
+
+```bash
+cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release -DASTROSIMGPU_CUDA=ON
+cmake --build build-cuda -j
+```
+
+`CMAKE_CUDA_ARCHITECTURES` defaults to 90, which is Hopper and therefore a
+GH200. Only `src/astrocyte_cuda.cu` goes through nvcc; the rest of the
+simulator is compiled by the host compiler as usual.
+
+The kernel launches 128 threads per block, matching the geometry the OpenMP
+target compiler reported choosing for the same loop, so neither is handed an
+advantage in the comparison.
+
+Every CUDA call is checked and aborts on failure. A silent failure would
+produce a simulation that runs and reports plausible output, which is the
+failure mode this project has already lost a day to.
+
+## Building Kokkos
 
 Kokkos is a CMake package, so the Makefile does not support it.
 
