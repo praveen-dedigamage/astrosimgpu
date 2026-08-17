@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=astrosimgpu-scaling
-#SBATCH --account=project_2003397
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00
 #SBATCH --nodes=1
@@ -9,6 +8,11 @@
 #SBATCH --gres=gpu:gh200:1
 #SBATCH --output=scaling-%j.out
 #SBATCH --error=scaling-%j.err
+
+# The account is not set here. Export SBATCH_ACCOUNT (and SLURM_ACCOUNT for
+# srun) instead, so switching project does not mean editing every script:
+#
+#   export SBATCH_ACCOUNT=project_XXXXXXX
 
 # Astrocyte kernel cost against population size. Neurons are fixed, so the host
 # work is constant and only the offloaded loop grows. Reported per timestep:
@@ -32,6 +36,7 @@ STEPS=$(awk -v s=$SIM -v d=$DT 'BEGIN{printf "%d", s/d}')
 
 SIZES="${SIZES:-100 1000 10000 40000}"
 
+echo "account: ${SLURM_JOB_ACCOUNT:-unknown}"
 echo "host   : $(hostname)   cores: $(nproc)"
 nvidia-smi --query-gpu=name --format=csv,noheader || true
 echo "steps  : $STEPS measured   (${PRE}ms transient discarded, ${SIM}ms recorded, dt ${DT}ms)"

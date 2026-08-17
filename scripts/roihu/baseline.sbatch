@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=astrosimgpu-baseline
-#SBATCH --account=project_XXXXXXX
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00
 #SBATCH --nodes=1
@@ -10,7 +9,12 @@
 #SBATCH --output=baseline-%j.out
 #SBATCH --error=baseline-%j.err
 
-# CPU baseline on Grace. Set --account before submitting.
+# The account is not set here. Export SBATCH_ACCOUNT (and SLURM_ACCOUNT for
+# srun) instead, so switching project does not mean editing every script:
+#
+#   export SBATCH_ACCOUNT=project_XXXXXXX
+
+# CPU baseline on Grace.
 #
 # The GPU reservation is only how you get at the Grace cores -- they exist only
 # on the GPU nodes. One GH200 grants 72 of them.
@@ -26,6 +30,7 @@ fi
 BIN="${BIN:-build-roihu/astrosimgpu}"
 [[ -x "$BIN" ]] || BIN="build/astrosimgpu"
 
+echo "account   : ${SLURM_JOB_ACCOUNT:-unknown}"
 echo "host      : $(hostname)"
 echo "arch      : $(uname -m)"
 echo "cores     : $(nproc)"

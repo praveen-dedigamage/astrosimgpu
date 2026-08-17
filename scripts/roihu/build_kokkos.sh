@@ -69,7 +69,7 @@ No GPU on this node, so the binary cannot start: a CUDA build links against
 the driver library, which only exists where a GPU does. Check it in an
 allocation:
 
-  srun --account=project_2003397 --partition=gputest --time=00:10:00 \
+  srun --partition=gputest --time=00:10:00 \
        --gres=gpu:gh200:1 --ntasks-per-node=1 --cpus-per-task=72 \
        ./build-kokkos/astrosimgpu_tests
 

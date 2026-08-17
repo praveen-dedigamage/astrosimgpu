@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=astrosimgpu-backends
-#SBATCH --account=project_2003397
 #SBATCH --partition=gpumedium
 #SBATCH --time=00:30:00
 #SBATCH --nodes=1
@@ -9,6 +8,11 @@
 #SBATCH --gres=gpu:gh200:1
 #SBATCH --output=backends-%j.out
 #SBATCH --error=backends-%j.err
+
+# The account is not set here. Export SBATCH_ACCOUNT (and SLURM_ACCOUNT for
+# srun) instead, so switching project does not mean editing every script:
+#
+#   export SBATCH_ACCOUNT=project_XXXXXXX
 
 # Compare all backends on one node, in one job. Any binary that is missing is
 # skipped. Build them first:
@@ -41,6 +45,7 @@ declare -a BINS=("build-cpu/astrosimgpu" "build-gpu/astrosimgpu" "build-kokkos/a
                  "build-cuda/astrosimgpu")
 INDICES="${!NAMES[@]}"
 
+echo "account: ${SLURM_JOB_ACCOUNT:-unknown}"
 echo "host   : $(hostname)   cores: $(nproc)"
 nvidia-smi --query-gpu=name --format=csv,noheader || true
 echo "steps  : $STEPS measured"

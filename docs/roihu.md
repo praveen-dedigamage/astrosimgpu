@@ -58,7 +58,16 @@ export COMPILER_MODULES="nvhpc/<version>"
 bash scripts/roihu/build.sh  # builds, runs the 81 checks
 ```
 
-Then edit `--account=project_XXXXXXX` in `scripts/roihu/baseline.sbatch` and:
+Set the project once — the scripts do not hardcode it, so switching projects
+does not mean editing them:
+
+```bash
+export SBATCH_ACCOUNT=project_XXXXXXX   # sbatch
+export SLURM_ACCOUNT=project_XXXXXXX    # srun
+```
+
+Worth putting in `~/.bashrc` next to the module load. Each run records which
+project it billed. Then:
 
 ```bash
 sbatch scripts/roihu/baseline.sbatch

@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=astrosimgpu-offload
-#SBATCH --account=project_2003397
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00
 #SBATCH --nodes=1
@@ -9,6 +8,11 @@
 #SBATCH --gres=gpu:gh200:1
 #SBATCH --output=offload-%j.out
 #SBATCH --error=offload-%j.err
+
+# The account is not set here. Export SBATCH_ACCOUNT (and SLURM_ACCOUNT for
+# srun) instead, so switching project does not mean editing every script:
+#
+#   export SBATCH_ACCOUNT=project_XXXXXXX
 
 # Validate the offload against the host build, same machine, same job.
 #
@@ -43,6 +47,7 @@ CONFIG=${CONFIG:-config/use_case.json}
 SIMTIME=${SIMTIME:-60000}
 
 echo "config  : $CONFIG   sim-time: $SIMTIME ms"
+echo "account : ${SLURM_JOB_ACCOUNT:-unknown}"
 echo "host    : $(hostname)"
 echo "arch    : $(uname -m)"
 echo "cores   : $(nproc)"
