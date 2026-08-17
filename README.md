@@ -176,6 +176,11 @@ Command line options:
 | `config/paper_sparse.json` | The reference "Sparse" benchmark model. Reproduces the published mean firing rate to 0.33 %. |
 | `config/quick.json` | Small and short. For checking a build only. |
 
+`synapse.sic_interval` sets how often the astrocytic current is exchanged, in
+steps, holding the last value in between. `docs/experiments.md` records what
+happens when it is raised: about ten times less often is safe, a hundred times
+costs one of five seeds its synchrony.
+
 ## GPU offload
 
 The astrocyte update has been restructured so that it can run as an OpenMP

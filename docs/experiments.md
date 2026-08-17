@@ -283,3 +283,44 @@ stays and the performance target is correspondingly lower.
    has the most interesting possible outcome.
 
 Experiments 3, 4 and 6 need no GPU allocation at all.
+
+### 4. Result
+
+Five seeds, both regimes, `sic_interval` of 1, 10, 100 and 1000 steps. The
+current is held at its last value between exchanges rather than set to zero.
+
+In the asynchronous configuration nothing happens: paired against interval 1,
+the correlation moves by less than its own scatter at every interval and the
+firing rate by under 0.3 %.
+
+The bursting configuration is where the answer is, and it is not a null result.
+Counting seeds whose astrocytic transients correlate above 0.1, which separates
+the two regimes cleanly since the values cluster near 0.01 or above 0.24:
+
+| interval | steps | synchronising |
+|---|---|---|
+| 1 | every 0.1 ms | 3 / 5 |
+| 10 | every 1 ms | 3 / 5 |
+| 100 | every 10 ms | 2 / 5 |
+| 1000 | every 100 ms | 2 / 5 |
+
+One of the three synchronising seeds loses synchrony between intervals 10 and
+100. Its firing rate falls from 0.63 to 0.50 Hz, which is where the two seeds
+that never synchronise sit, and its transient count from 130 to 92. That is a
+change of regime, not a shift in a measure.
+
+**So the current can be exchanged about ten times less often than every step,
+not a thousand.** At 1 ms all five seeds behave as they do at 0.1 ms. At 10 ms
+the synchronised regime becomes fragile.
+
+The analysis matters as much as the number. Averaged across seeds, interval 100
+shows a paired correlation change of -0.033 +/- 0.099, which reads as
+comfortably insignificant. The +/- is the collapse. A bimodal measure has to be
+counted by regime, not averaged across one.
+
+**What this does not establish.** Five seeds, 100 astrocytes, one delay value,
+one pair of parameter sets. Whether the fragility at 10 ms is a property of the
+model or of this particular operating point is unknown, and the network sits
+close enough to its transition that two of five seeds never synchronise at all.
+Nothing here says what happens when the exchange crosses devices, where the
+latency structure differs.
