@@ -37,12 +37,18 @@ for sub in $SUBSTEPS; do
 
     for seed in $SEEDS; do
         printf "substeps=%-3s seed=%-3s " "$sub" "$seed"
-        out=$("$BIN" --config "$cfg" -t "$SIMTIME" -s "$seed" -o "$OUT/s${sub}_$seed" 2>/dev/null)
+        if ! out=$("$BIN" --config "$cfg" -t "$SIMTIME" -s "$seed" \
+                   -o "$OUT/s${sub}_$seed" 2>&1); then
+            echo "FAILED"; echo "$out" | tail -5 >&2; exit 1
+        fi
         tr_=$(awk '/transients detected/ {print $3}' <<< "$out")
         co=$(awk '/mean pairwise correlation/ {print $NF}' <<< "$out")
         ra=$(awk '/mean firing rate/ {print $4}' <<< "$out")
         echo "transients=$tr_ correlation=$co rate=$ra"
-        echo "$sub,$seed,${tr_:-},${co:-},${ra:-}" >> "$raw"
+        if [[ -z "$co" || -z "$ra" ]]; then
+            echo "run produced no parseable output; stopping" >&2; exit 1
+        fi
+        echo "$sub,$seed,$tr_,$co,$ra" >> "$raw"
     done
 done
 

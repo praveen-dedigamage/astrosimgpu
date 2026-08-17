@@ -41,13 +41,21 @@ pathlib.Path(out).write_text(json.dumps(cfg, indent=2))
 PY
         for seed in $SEEDS; do
             printf "%-9s k=%-5s seed=%-3s " "$cfg_name" "$k" "$seed"
-            o=$("$BIN" --config "$cfg" -t "$SIMTIME" -s "$seed" \
-                -o "$OUT/${cfg_name}_k${k}_s$seed" 2>/dev/null)
+            # Stop on a failed run. Without this a crash and a run with no
+            # transients are indistinguishable: both leave the fields empty and
+            # awk reads empty as zero.
+            if ! o=$("$BIN" --config "$cfg" -t "$SIMTIME" -s "$seed" \
+                     -o "$OUT/${cfg_name}_k${k}_s$seed" 2>&1); then
+                echo "FAILED"; echo "$o" | tail -5 >&2; exit 1
+            fi
             co=$(awk '/mean pairwise correlation/ {print $NF}' <<< "$o")
             ra=$(awk '/mean firing rate/ {print $4}' <<< "$o")
             tr_=$(awk '/transients detected/ {print $3}' <<< "$o")
             echo "correlation=$co rate=$ra transients=$tr_"
-            echo "$cfg_name,$k,$seed,${co:-},${ra:-},${tr_:-}" >> "$raw"
+            if [[ -z "$co" || -z "$ra" ]]; then
+                echo "run produced no parseable output; stopping" >&2; exit 1
+            fi
+            echo "$cfg_name,$k,$seed,$co,$ra,$tr_" >> "$raw"
         done
     done
 done
