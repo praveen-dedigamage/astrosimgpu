@@ -303,9 +303,10 @@ void AstrocytePopulation::update(const TimeGrid& time, std::int64_t step, std::u
                 ip3_d(i) = 0.0;
             });
         Kokkos::fence();
-        for (std::int64_t i = 0; i < n; ++i) {
-            ip3_in[i] = 0.0;
-        }
+        // The host copy is cleared by Network::clear_inputs, which walks only
+        // the cells some neuron projects to. Zeroing the whole array here as
+        // well was both redundant and, at a million cells, a million writes
+        // per timestep.
         return;
     }
 #endif
