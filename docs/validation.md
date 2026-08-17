@@ -88,8 +88,10 @@ done
 | mean of three | 4.7445 Hz |
 | paper, mean of nine | 4.76 spikes/s |
 
-The agreement is 0.33 %, and the published value falls inside the seed-to-seed
-spread of these three runs.
+The agreement is 0.33 % at `substeps = 1`, which is the default and is not
+converged. At `substeps = 2` the mean is 4.7617 Hz and the agreement 0.04 %; see
+"Step size, with seeds" below. Either way the published value falls inside the
+seed-to-seed spread.
 
 What that does and does not establish:
 
@@ -158,7 +160,7 @@ therefore more offload-friendly than the default one, not less.
 Stated explicitly, because the gap matters more than the agreement:
 
 - **Only one published value has been compared.** The mean firing rate of the
-  "Sparse" benchmark model agrees to 0.33 %, as above. Calcium transient
+  "Sparse" benchmark model agrees to 0.04 % at a converged step size, as above. Calcium transient
   durations, transient timing and the magnitude of the synchrony measures have
   not been compared against the published figures or against a NEST run.
 - **The excitatory and inhibitory populations fire at very different rates**

@@ -525,7 +525,7 @@ traces.
    check whether a result depends on the step size.
 2. **Short-term plasticity.** Implemented in the published Tsodyks-Markram
    form. NEST's `tsodyks_synapse` update order has not been compared against it
-   line by line, though the benchmark firing rate agreeing to 0.33 % suggests
+   line by line, though the benchmark firing rate agreeing to 0.04 % suggests
    the aggregate behaviour matches. Set `synapse.stp.enabled` to `false` for
    static weights.
 3. **Random numbers.** A different generator, so the same seed gives a
