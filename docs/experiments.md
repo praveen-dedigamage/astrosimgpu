@@ -76,13 +76,20 @@ step, and a per-cell cost that only becomes efficient once the device is
 occupied. Measured on one build after the residency change:
 
 ```
-device  ~ 28 us + 0.133 ns per astrocyte
-host    ~  4 us + 0.762 ns per astrocyte
+CUDA           20.2 us + 0.133 ns per astrocyte
+Kokkos         27.5 us + 0.131 ns per astrocyte
+OpenMP target  28.4 us + 0.137 ns per astrocyte
+host            5.0 us + 0.699 ns per astrocyte
 ```
 
 The three outcomes listed above did not include this one. The flat region below
 a thousand cells is the fixed cost showing through; the efficient region above
-ten thousand is the device filling up. The crossover is at about 40,000.
+ten thousand is the device filling up. CUDA crosses the host at about 27,000
+astrocytes, the portable routes at about 40,000.
+
+A later four-way run added the reason for that difference: the three device
+marginal costs agree to within 4 %, so the abstractions cost per launch and not
+per cell. See docs/backends.md.
 
 ---
 

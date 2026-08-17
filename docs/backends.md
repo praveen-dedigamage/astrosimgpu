@@ -10,11 +10,38 @@ nothing else.
 | host | `make OPENMP=1 CXX=nvc++` | validated on Roihu |
 | OpenMP target | `make OFFLOAD=1 CXX=nvc++` | validated on a GH200 |
 | Kokkos | `cmake -DASTROSIMGPU_KOKKOS=ON` | builds and runs correctly on a GH200 |
-| native CUDA | `cmake -DASTROSIMGPU_CUDA=ON` | **not yet compiled** |
+| native CUDA | `cmake -DASTROSIMGPU_CUDA=ON` | validated on a GH200 |
 
-Native CUDA exists as the reference point. If the two portable routes match it,
-portability is free here; if they do not, the difference is what portability
-costs, with a number rather than an assumption attached.
+Native CUDA is the reference the portable routes are measured against. All four
+reproduce the regime transition exactly (0.0106 asynchronous, 0.4177 bursting).
+
+## What portability costs
+
+Fitted over the linear region, from two runs that agreed to within a few per
+cent:
+
+```
+CUDA           20.2 us + 0.133 ns per astrocyte
+Kokkos         27.5 us + 0.131 ns per astrocyte
+OpenMP target  28.4 us + 0.137 ns per astrocyte
+host            5.0 us + 0.699 ns per astrocyte
+```
+
+The three device marginal costs agree to within 4 %, and Kokkos is marginally
+below CUDA. The abstractions cost 7 to 8 microseconds per kernel launch and
+nothing per cell.
+
+So the penalty depends on the population: about 40 % at a thousand astrocytes
+where the fixed cost is everything, 4 to 11 % at a million where it is diluted,
+and less above that. A single percentage would have been misleading.
+
+The same fixed cost sets where each backend beats the host: roughly 27,000
+astrocytes for CUDA, about 40,000 for the portable routes.
+
+Where the remaining 7 microseconds goes is not known. All three are far from the
+hardware's floating-point capability, and since three different dispatch
+mechanisms agree on the marginal cost, the limit is the kernel rather than the
+dispatch.
 
 ## Why the later ones were cheap to add
 

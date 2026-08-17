@@ -129,6 +129,7 @@ ModelConfig load_config(const std::string& path) {
         s.get_to("d_e", cfg.syn.d_e);
         s.get_to("d_i", cfg.syn.d_i);
         s.get_to("d_a2n", cfg.syn.d_a2n);
+        s.get_to("sic_interval", cfg.syn.sic_interval);
         if (const Json& stp = s["stp"]; stp.is_object()) {
             stp.get_to("enabled", cfg.syn.stp.enabled);
             stp.get_to("U", cfg.syn.stp.U);
@@ -179,6 +180,9 @@ ModelConfig load_config(const std::string& path) {
     }
     if (cfg.record_every < 1) {
         throw std::runtime_error("simulation.record_every must be at least 1");
+    }
+    if (cfg.syn.sic_interval < 1) {
+        throw std::runtime_error("synapse.sic_interval must be at least 1");
     }
     if (cfg.conn.pool_size < 1) {
         throw std::runtime_error("connectivity.pool_size must be at least 1");

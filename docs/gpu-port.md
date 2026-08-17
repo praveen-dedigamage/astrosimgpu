@@ -158,44 +158,43 @@ across teams and 128 threads, with device routines generated for
 All 86 component checks pass on the device, and the offloaded run reproduces
 the host result exactly in every configuration tested. The kernel is correct.
 
-Astrocyte update phase only, per timestep, one sweep on one build. Host is 72
-Grace cores built with nvc++.
+Astrocyte update phase only, per timestep. One job per row, one build per
+backend, threads pinned. Host is 72 Grace cores.
 
-| astrocytes | host | device | |
-|---|---|---|---|
-| 100 | 4.0 us | 28.0 us | host 7.1x |
-| 1,000 | 5.1 us | 29.3 us | host 5.8x |
-| 10,000 | 13.0 us | 31.7 us | host 2.4x |
-| 40,000 | 36.0 us | 36.2 us | even |
-| 100,000 | 80.6 us | 45.2 us | device 1.8x |
-| 1,000,000 | 805.1 us | 169.2 us | device 4.8x |
-| 10,000,000 | 7,666.1 us | 1,370.8 us | device 5.6x |
+| astrocytes | host | OpenMP target | Kokkos | CUDA |
+|---|---|---|---|---|
+| 1,000 | 5.4 | 27.9 | 27.4 | 20.6 |
+| 10,000 | 19.9 | 33.9 | 32.3 | 28.2 |
+| 100,000 | 87.7 | 48.6 | 46.1 | 36.6 |
+| 1,000,000 | 705.5 | 173.6 | 164.1 | 154.7 |
+| 10,000,000 | 7,061.6 | 1,371.6 | 1,335.1 | 1,272.5 |
 
-Both are linear above ten thousand cells with a fixed per-step cost below it:
+Fitted over the linear region:
 
 ```
-device  ~ 28 us + 0.133 ns per astrocyte
-host    ~  4 us + 0.762 ns per astrocyte
+CUDA           20.2 us + 0.133 ns per astrocyte
+Kokkos         27.5 us + 0.131 ns per astrocyte
+OpenMP target  28.4 us + 0.137 ns per astrocyte
+host            5.0 us + 0.699 ns per astrocyte
 ```
 
-The marginal figures hold from ten thousand astrocytes to ten million, so the
-kernel is
-**5.7 times cheaper per astrocyte** than the host. The measured ratio at ten
-million is 5.6, which is that asymptote reached rather than approached.
+The kernel is **5.3 times cheaper per cell** than the host. The three device
+marginal costs agree to within 4 %: the abstractions cost 7 to 8 microseconds
+per launch and nothing per cell, which is also why CUDA meets the host at
+roughly 27,000 astrocytes where the portable routes meet it at about 40,000.
 
-**The lines cross at about 40,000 astrocytes.** The fit puts it at 37,100 and
-the sweep measures 0.99x at 40,000.
+Three statements in earlier versions of this document were wrong and are worth
+recording as such:
 
-Two earlier statements in this document were wrong and are worth recording as
-such:
-
-- An earlier version reported the device cost as "nearly flat" between 100 and
-  1000 astrocytes and concluded the cost was per launch rather than per byte.
-  The flatness was real but the conclusion was too strong: there is a fixed
-  cost *and* a per-cell cost, and the per-cell one only becomes efficient once
-  the device is occupied, somewhere above ten thousand cells.
+- The device cost was reported as "nearly flat" between 100 and 1000
+  astrocytes, concluding the cost was per launch rather than per byte. The
+  flatness was real, the conclusion too strong: there is a fixed cost *and* a
+  per-cell cost, and the latter only becomes efficient once the device is
+  occupied.
 - A crossover of 150,000 was extrapolated from measurements spanning two code
-  versions and two host compilers. Measured properly on one build it is 40,000.
+  versions and two host compilers.
+- Portability was reported as costing 5 to 12 %, from a single run. It depends
+  on population size, because the difference is entirely in the fixed cost.
 
 ### What residency changed
 
@@ -218,9 +217,10 @@ costing more than the estimate allowed.
 
 ### What remains
 
-The 28 microsecond fixed cost is three device operations per step: transfer the
-synaptic input across, launch the kernel, transfer calcium back. A launch alone
-is a few microseconds, so the two transfers are most of it.
+The fixed cost is three device operations per step: transfer the synaptic input
+across, launch the kernel, transfer calcium back. Native CUDA pays 20.2
+microseconds for the same three, so roughly 7 of the portable routes' 28 is the
+abstraction and the rest is the operations themselves.
 
 Removing them means moving SIC delivery onto the device, which is not a small
 change: `deliver_sic` writes into ring buffers indexed by neuron, so the

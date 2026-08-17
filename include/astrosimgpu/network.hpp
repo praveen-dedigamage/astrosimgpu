@@ -96,6 +96,12 @@ private:
     vec<vec<real>> ring_exc_, ring_inh_, ring_sic_, ring_astro_;
     int ring_slots_ = 1;
 
+    // Which ring slots carry a new astrocytic current. Skipping delivery would
+    // otherwise apply a zero rather than holding the last value, which is a
+    // different experiment.
+    vec<char> ring_sic_pending_;
+    int sic_delay_steps_ = 1;
+
     // Built once from the connectivity. Without these the delivery phases scan
     // the whole population every step to find the few cells that matter.
     vec<index_t> sic_sources_;        // have an outgoing SIC connection

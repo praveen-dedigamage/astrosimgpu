@@ -73,8 +73,9 @@ Both runs take about a minute. `-t 120000` shortens the recorded window from
 the configured five minutes; the transition is present either way.
 
 The implementation also reproduces a published number. The paper reports a mean
-firing rate of 4.76 spikes/s for its "Sparse" benchmark model; `config/paper_sparse.json`
-gives 4.7445 Hz averaged over three seeds, an agreement of 0.33 %.
+firing rate of 4.76 spikes/s for its "Sparse" benchmark model;
+`config/paper_sparse.json` gives 4.7617 Hz over three seeds at a converged step
+size, an agreement of 0.04 %.
 
 Reproducing both is what says the implementation is right.
 `docs/validation.md` records it, together with the four errors found while
@@ -103,8 +104,8 @@ because three things are awkward through the NEST Python interface:
    environment.
 2. **The numerics are explicit.** The integrator, time step and substepping are
    set in the configuration file rather than inside a simulator kernel.
-   `docs/validation.md` shows why that matters: the results are not converged at
-   the default step size.
+   `docs/validation.md` shows why that matters: the calcium statistics are not
+   converged at `substeps = 1`, and 2 is enough.
 3. **The data layout is prepared for GPU offload.** Populations are stored as
    structure-of-arrays and each cell update writes only its own element. The
    astrocyte update has already been restructured into device-callable free

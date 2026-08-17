@@ -103,6 +103,8 @@ void Network::build() {
     ring_inh_.assign(ring_slots_, vec<real>(n_neurons, 0.0));
     ring_sic_.assign(ring_slots_, vec<real>(n_neurons, 0.0));
     ring_astro_.assign(ring_slots_, vec<real>(cfg_.N.N_astro, 0.0));
+    ring_sic_pending_.assign(ring_slots_, 0);
+    sic_delay_steps_ = delay_to_steps(cfg_.syn.d_a2n, dt);
 }
 
 void Network::build_primary_connections(CounterRng& rng) {
@@ -277,6 +279,12 @@ void Network::deliver_spikes(const vec<Spike>& spikes, std::int64_t step) {
 }
 
 void Network::deliver_sic(std::int64_t step) {
+    // Mark the arrival slot whether or not anything contributes. An exchange
+    // with every astrocyte below threshold still tells the neuron its current
+    // is zero, and treating that as "nothing arrived" would leave the last
+    // value held indefinitely.
+    ring_sic_pending_[(step + sic_delay_steps_) % ring_slots_] = 1;
+
     // Only astrocytes with an outgoing connection can contribute.
     for (const index_t a : sic_sources_) {
         const real factor = astro_.sic_factor(a);
@@ -293,6 +301,12 @@ void Network::deliver_sic(std::int64_t step) {
 void Network::apply_arrivals(std::int64_t step) {
     const int slot = static_cast<int>(step % ring_slots_);
 
+    // With an exchange interval above one, most steps carry no new current and
+    // the neuron holds the last one it was sent. Applying the empty slot would
+    // zero it instead, which is not the same thing.
+    const bool sic_arrives = ring_sic_pending_[slot] != 0;
+    ring_sic_pending_[slot] = 0;
+
     vec<real>& ex = ring_exc_[slot];
     vec<real>& in = ring_inh_[slot];
     vec<real>& sic = ring_sic_[slot];
@@ -307,11 +321,10 @@ void Network::apply_arrivals(std::int64_t step) {
             neurons_.add_synaptic_input(i, -in[i]);
             in[i] = 0.0;
         }
-        // The SIC is continuous: whatever was scheduled for this step is the
-        // current the neuron sees, and it is replaced rather than accumulated
-        // across steps.
-        neurons_.set_sic(i, sic[i]);
-        sic[i] = 0.0;
+        if (sic_arrives) {
+            neurons_.set_sic(i, sic[i]);
+            sic[i] = 0.0;
+        }
     }
 
     // Only cells some neuron projects to can have a pending entry.
@@ -412,7 +425,9 @@ void Network::run(Recorder& recorder) {
         }
 
         t = clock::now();
-        deliver_sic(step);
+        if (step % cfg_.syn.sic_interval == 0) {
+            deliver_sic(step);
+        }
         if (measured) {
             profile_.sic_gd += tick(t);
         }

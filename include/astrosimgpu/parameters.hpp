@@ -77,7 +77,14 @@ struct SynapseParams {
     real w_a2n = 1.0;       ///< astrocyte-to-neuron SIC weight [pA]
     real d_e = 1.0;         ///< excitatory delay [ms]
     real d_i = 1.0;         ///< inhibitory delay [ms]
-    real d_a2n = 1.0;       ///< astrocyte-to-neuron delay [ms]
+    real d_a2n = 1.0;
+
+    // How often the astrocytic current is exchanged, in steps. 1 sends it every
+    // step, as the reference does. Larger values hold the last value in between,
+    // which is what a coarser exchange interval means physically. Calcium moves
+    // on a timescale of seconds against a 0.1 ms step, so the signal may be sent
+    // far more often than the dynamics need.
+    int sic_interval = 1;       ///< astrocyte-to-neuron delay [ms]
     StpParams stp{};
     // Note: the synaptic time constants that shape the postsynaptic
     // conductance belong to the neuron, not here. The reference parameter

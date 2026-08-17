@@ -201,3 +201,47 @@ spikes over 300 s of model time -- which made the neuron-to-astrocyte pathway
 inert and left the default configuration behaving exactly like the
 silent-neuron control. Error 4 then made the astrocyte-to-neuron weight have
 no measurable effect on the network.
+
+## Step size, with seeds
+
+The earlier table used one seed, which cannot separate discretisation error from
+the scatter of a noise-driven simulation. Five seeds per level, mean and
+standard deviation, `config/use_case.json` at 60 s:
+
+| substeps | transients | correlation | rate (Hz) |
+|---|---|---|---|
+| 1 | 55.2 +/- 7.1 | 0.0051 +/- 0.0067 | 0.4811 |
+| 2 | 65.8 +/- 7.3 | 0.0076 +/- 0.0032 | 0.5009 |
+| 4 | 66.2 +/- 8.6 | 0.0095 +/- 0.0043 | 0.5060 |
+| 8 | 66.6 +/- 6.4 | 0.0100 +/- 0.0063 | 0.5094 |
+
+Reproduce with `bash scripts/convergence.sh`.
+
+**`substeps = 1` is under-resolved; `substeps = 2` is enough.** The transient
+count moves 55.2 to 65.8 between substeps 1 and 2, which is 3.3 standard errors
+and therefore systematic, then 0.4 and 0.4 across the next two doublings, well
+inside the scatter.
+
+**The correlation drift reported earlier was mostly noise.** Across five seeds
+the shift from substeps 1 to 8 is 0.0049 against a standard error of 0.0030,
+about 1.6 sigma. At this network size the measure cannot resolve a step-size
+effect. The single-seed table should not have been read as one.
+
+**Firing rate is 4 % low at `substeps = 1`** on this configuration, which raised
+a question about the benchmark comparison above, since that was measured at the
+same setting. It was checked and the concern does not apply:
+
+| `config/paper_sparse.json` | mean firing rate | against 4.76 |
+|---|---|---|
+| substeps = 1, three seeds | 4.7445 | 0.33 % low |
+| substeps = 2, three seeds | 4.7617 +/- 0.026 | 0.04 % low |
+
+The published value falls inside the seed scatter at the converged setting, so
+the agreement improves rather than degrades. The step sensitivity is real but
+eleven times smaller here than on `use_case`, 0.36 % against 4.1 %: the
+benchmark network is driven hard by a 2000 Hz Poisson input and sits far from
+the marginal regime where the integrator matters.
+
+Use `substeps = 2` for quantitative work. It converges the calcium statistics
+and costs twice the arithmetic, not the four to eight times a less careful
+reading of the single-seed table would have suggested.
