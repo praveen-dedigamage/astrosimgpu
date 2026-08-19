@@ -36,52 +36,67 @@ sends a slow inward current back to the postsynaptic neuron. Neurons drive
 astrocytes, astrocytes drive neurons, and the question is what that loop does
 to the network as a whole.
 
-Run the default configuration:
+### What the code produces
 
-```bash
-./build/astrosimgpu --config config/use_case.json -t 120000
-```
+Two results. Both agree with the published ones, and they check different
+things.
 
-```
-mean firing rate             0.4803 Hz
-astrocytes with transients   64 / 100
-mean pairwise correlation    0.0012
-```
+The first is about the network as a whole rather than about any one cell.
+Individual cells can be checked directly against their equations, and the
+component tests do that. But every cell being right does not make the network
+built from them right, because what the paper describes is a behaviour neither
+population produces on its own. Neurons drive astrocytes, astrocytes send
+current back, and the loop that closes between the two can hold the network in
+either of two states: one where neurons fire sparsely and independently of
+each other, and one where the whole population fires in step.
 
-Neurons fire sparsely and irregularly. Astrocyte calcium transients occur, but
-they are uncorrelated with each other.
+Which of those it settles into is what this reproduces, and it is a demanding
+check precisely because it is a property of the loop rather than of its parts.
+It requires the neuron model, the astrocyte model, the rule that connects them
+and the delays along those connections to all be right at the same time. An
+error in any one of them can leave every individual cell behaving plausibly,
+and every component test still passing, while the network settles in the wrong
+state.
 
-Now change one number. `config/bursting.json` is identical except that the
-neuron-to-astrocyte weight goes from 0.20 to 0.31:
+Two runs show it. They differ in one parameter, how strongly each presynaptic
+spike raises IP3 in the astrocyte that synapse recruited, raised from 0.20 to
+0.31. The network is 400 excitatory and 100 inhibitory neurons with 100
+astrocytes, and nothing else about it changes, including the random seed.
 
-```bash
-./build/astrosimgpu --config config/bursting.json -t 120000
-```
+| | weight 0.20 | weight 0.31 |
+|---|---|---|
+| mean firing rate | 0.4803 Hz | 0.6364 Hz |
+| astrocytes producing calcium transients | 64 / 100 | 100 / 100 |
+| mean correlation between astrocyte pairs | 0.0012 | 0.3429 |
 
-```
-mean firing rate             0.6364 Hz
-astrocytes with transients   100 / 100
-mean pairwise correlation    0.3429
-```
+A calcium transient is a single pulse of calcium released from the astrocyte's
+internal store, and it is what makes the astrocyte send current back to its
+neuron. An astrocyte that never produces one takes no part in the network. The
+correlation measures whether those pulses happen independently across
+astrocytes or together, which is what separates the two states.
 
-Every astrocyte is now active, and their calcium transients are strongly
-correlated. The network has moved from asynchronous firing into synchronised
-activity, and the only thing that changed is how strongly neurons drive
-astrocytes. The feedback runs entirely through the astrocytic pathway.
+At 0.20 the neurons fire sparsely and irregularly, a third of the astrocytes
+never activate at all, and the ones that do are uncorrelated. At 0.31 every
+astrocyte is active, their pulses coincide, and the network fires faster.
+Raising one coupling strength by about half moves the system across a boundary
+instead of shifting it smoothly, and reproducing a threshold like that is a
+stricter test than matching any single number.
 
-Both runs take about a minute. `-t 120000` shortens the recorded window from
-the configured five minutes; the transition is present either way.
-
-The implementation also reproduces a published number. The paper reports a mean
-firing rate of 4.76 spikes/s for its "Sparse" benchmark model;
-`config/paper_sparse.json` gives 4.7617 Hz over three seeds at a converged step
+The second result is a number rather than a behaviour, and it comes from a
+different network. The paper publishes a mean firing rate of 4.76 spikes/s for
+the benchmark model it calls "Sparse", which has 10,000 neurons and 10,000
+astrocytes against the 500 and 100 above. `config/paper_sparse.json` reproduces
+that configuration and gives 4.7617 Hz over three seeds at a converged step
 size, an agreement of 0.04 %.
 
-Reproducing both is what says the implementation is right.
-`docs/validation.md` records it, together with the four errors found while
-getting there and the things that remain unchecked.
+The two check different things. The transition says the coupled dynamics behave
+correctly; the benchmark says the arithmetic underneath them is right. Passing
+either alone would not be convincing. `docs/validation.md` records both,
+together with four errors found while getting there, each of which produced
+entirely plausible output, and the checks that remain outstanding. The commands
+are under "Run".
 
-## Status
+## Current status
 
 The default build is CPU-only and needs nothing but a C++17 compiler.
 
@@ -95,7 +110,7 @@ each other and differ only in fixed cost. That is one phase of the simulation
 measured with the connectivity held almost constant; see "GPU offload" below for
 what it does and does not establish.
 
-## Why a second implementation
+## Why we implemented this code base
 
 The reference implementation is the authority on the model. This one exists
 because three things are awkward through the NEST Python interface:
@@ -114,7 +129,7 @@ because three things are awkward through the NEST Python interface:
 Use the reference implementation for published results. Use this one to
 explore, to profile, or to experiment with the numerics.
 
-## Build
+## How to build
 
 ```bash
 make -j
@@ -161,6 +176,17 @@ Command line options:
     --threads N       OpenMP threads
     --no-analysis     skip the post-run summary
 ```
+
+### Reproducing the transition
+
+```bash
+./build/astrosimgpu --config config/use_case.json -t 120000
+./build/astrosimgpu --config config/bursting.json -t 120000
+```
+
+Each takes about a minute and prints the figures compared at the top of this
+file. `-t 120000` shortens the recorded window from the configured five
+minutes; the transition is present either way.
 
 ## Configurations
 
