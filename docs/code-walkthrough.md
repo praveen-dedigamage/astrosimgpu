@@ -128,6 +128,11 @@ Configuration files are JSON and need only list the values they change;
 anything omitted keeps the default compiled in here. `src/parameters.cpp`
 performs the translation.
 
+Unrecognised keys are rejected rather than ignored. `Json::operator[]` records
+every key that is asked for, and `collect_unused` afterwards reports anything
+in the file that nobody read. A misspelled parameter therefore stops the run
+instead of silently leaving the default in place.
+
 ---
 
 ## 4. The astrocyte model — `astrocyte.hpp`, `astrocyte.cpp`, `astrocyte_kernel.hpp`
@@ -327,14 +332,19 @@ parameters a neuron is connected to its astrocyte around sixteen times.
 
 `Network::run` advances the simulation. Each step performs six operations:
 
-1. Move signals whose delay has elapsed from the circular buffers into the
-   cells
-2. Generate background input for the astrocytes
-3. Integrate the astrocytes
-4. Integrate the neurons and collect any spikes
-5. Place emitted spikes into the buffers, adjusting weights for short-term
-   synaptic changes
-6. Place astrocytic currents into the buffers
+1. `apply_arrivals`, moving signals whose delay has elapsed from the circular
+   buffers into the cells
+2. `drive_astrocytes`, generating background input for the astrocytes
+3. `AstrocytePopulation::update`, integrating the astrocytes
+4. `NeuronPopulation::update`, integrating the neurons and collecting spikes
+5. `deliver_spikes`, placing emitted spikes into the buffers and adjusting
+   weights for short-term synaptic changes
+6. `deliver_sic`, placing astrocytic currents into the buffers
+
+The last of these does not run every step. `synapse.sic_interval` sets how many
+steps pass between exchanges, and the current holds its previous value in
+between. `docs/experiments.md` records how far that can be raised before the
+dynamics change.
 
 Each operation is timed separately. The categories match those used in the
 benchmarks of the original paper, so profiles from the two implementations can
@@ -345,6 +355,14 @@ cell. Only astrocytes that the connectivity actually reaches can participate,
 and which ones those are is fixed when the network is built. Scanning the whole
 population instead becomes the dominant cost in large networks where most
 astrocytes are unconnected.
+
+Step 2 deserves attention out of proportion to its length. It draws a Poisson
+variate for every astrocyte, on one thread, every step, and it carries no
+OpenMP directive. At a million astrocytes that makes it the largest single
+cost in the simulation: roughly 720 us against 56 us for the kernel it feeds,
+measured in `docs/profiling.md`. The loop is per-cell with no communication and
+`CounterRng` keeps no state between cells, so it is already in the shape a
+parallel region or a device kernel wants.
 
 ---
 
@@ -379,34 +397,64 @@ These files contain no model logic and can be left until needed.
 
 ## 9. GPU execution
 
-The astrocyte update can run on an NVIDIA GPU through OpenMP target offload.
-This is enabled by a build flag and is off by default.
+The astrocyte update runs on the host by default. Three device backends exist
+behind build flags: OpenMP target offload, Kokkos, and native CUDA. All four
+produce identical results.
 
-Three pieces make it work.
+Three pieces make that possible.
 
-**The calculation is available as free functions** in `astrocyte_kernel.hpp`,
-marked so the compiler generates a device version.
-
-**One directive selects where the loop runs:**
+**The calculation is a free function.** `astro_advance` in
+`astrocyte_kernel.hpp` takes plain scalars and returns plain scalars, knowing
+nothing about the population it belongs to. A macro decorates it for whichever
+backend is being compiled:
 
 ```cpp
-#ifdef ASTROSIMGPU_OFFLOAD
-#pragma omp target teams distribute parallel for map(...)
+#if defined(ASTROSIMGPU_KOKKOS)
+#define ASTROSIMGPU_FN KOKKOS_INLINE_FUNCTION
+#elif defined(__CUDACC__)
+#define ASTROSIMGPU_FN __host__ __device__ inline
 #else
-#pragma omp parallel for schedule(static)
+#define ASTROSIMGPU_FN inline
 #endif
 ```
 
-The body of the loop is identical in both cases. Only the directive changes.
+That separation is what allows three device backends without three copies of
+the equations. `rng.hpp` uses the same pattern for its own functions.
 
-**Data stays on the device.** `device_begin` transfers the astrocyte state to
-the GPU once at the start of a run. OpenMP tracks what is already present, so
-the per-step transfer clauses then find the data there and move nothing. Two
-transfers remain each step: input travels to the device, and calcium returns,
-because the current delivery step reads it on the host.
+**One dispatch chooses where the loop runs.** `AstrocytePopulation::update`
+selects at compile time. The loop body is the same call to `astro_advance` in
+every case; only the construct around it changes:
 
-Measured performance and the remaining work are recorded in
-`docs/gpu-port.md`.
+| Backend | Construct |
+|---|---|
+| host | `#pragma omp parallel for schedule(static)` |
+| OpenMP target | `#pragma omp target teams distribute parallel for` |
+| Kokkos | `Kokkos::parallel_for` |
+| native CUDA | `astro_update_kernel<<<grid, 128>>>` in `astrocyte_cuda.cu` |
+
+The block size of 128 is not arbitrary: it is what the OpenMP target compiler
+chose for the same loop, so neither route is handed an advantage in a
+comparison. The CUDA path sits behind an interface in `astrocyte_cuda.hpp`
+that names no CUDA types, so everything else still compiles with an ordinary
+C++ compiler.
+
+**State stays on the device.** `device_begin` transfers the astrocyte arrays
+once at the start of a run and `device_end` brings them back at the end. Two
+transfers remain each step: the synaptic input travels out, and calcium
+returns because `deliver_sic` reads it on the host.
+
+Residency introduced a bug worth knowing about, because the fix looks
+arbitrary otherwise. The kernel zeroes its own copy of the input array after
+consuming it. Once the arrays are resident nothing carries that zeroing back,
+so the host copy accumulated indefinitely and the correlation went to 1.0000
+in both regimes. `clear_inputs` zeroes the host copy instead, and it takes the
+list of cells that can be non-zero rather than the whole population, because
+scanning a million entries to clear a few thousand costs more per step than
+the kernel does.
+
+What this achieves and what it does not are measured in `docs/profiling.md`
+and `docs/gpu-port.md`. The short version is that the kernel is not the
+problem: at a million astrocytes the device is idle 91 % of the step.
 
 ---
 
