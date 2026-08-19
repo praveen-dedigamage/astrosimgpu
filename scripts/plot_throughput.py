@@ -41,8 +41,9 @@ THEMES = {
 }
 
 # Palette slots 1-4 in fixed order; a line chart uses the adjacent pairlist,
-# which this order clears. Series are directly labelled, which the light-mode
-# contrast of slot 4 requires.
+# which this order clears. The legend is set apart from the lines: the three
+# device backends finish within three pixels of each other, so a label at the
+# end of each line cannot be read.
 SERIES = [
     ("host_us", "host, 72 Grace cores"),
     ("openmp_target_us", "OpenMP target"),
@@ -126,6 +127,7 @@ def make_svg(data, mode):
     add(f'<text x="{px(cross)+7:.1f}" y="{T+14}" fill="{t["muted"]}" font-size="12">'
         f'crossover ~27k</text>')
 
+    entries = []
     for idx, (key, label) in enumerate(SERIES):
         pts = [(d["n"], d[key]) for d in data if d[key] is not None]
         if not pts:
@@ -141,11 +143,14 @@ def make_svg(data, mode):
             # series cross.
             add(f'<circle cx="{px(n):.1f}" cy="{py(v):.1f}" r="4.5" fill="{colour}" '
                 f'stroke="{t["surface"]}" stroke-width="2"/>')
-        # Direct label at the right end, so identity never depends on matching
-        # a colour to a legend entry.
-        n, v = pts[-1]
-        add(f'<circle cx="{W-R+14}" cy="{py(v):.1f}" r="4.5" fill="{colour}"/>')
-        add(f'<text x="{W-R+24}" y="{py(v)+4:.1f}" fill="{t["text"]}" font-size="12">'
+        entries.append((colour, label))
+
+    # Legend in the right margin, in the order the series are declared, which is
+    # also the order they appear at the right-hand end of the plot.
+    for i, (colour, label) in enumerate(entries):
+        y = T + 16 + i * 22
+        add(f'<circle cx="{W-R+21}" cy="{y}" r="4.5" fill="{colour}"/>')
+        add(f'<text x="{W-R+31}" y="{y+4}" fill="{t["text"]}" font-size="12">'
             f'{label}</text>')
 
     add('</svg>')

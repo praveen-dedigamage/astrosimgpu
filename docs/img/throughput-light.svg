@@ -34,30 +34,30 @@
 <circle cx="324.0" cy="212.7" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="447.0" cy="138.4" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="570.0" cy="56.4" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="584" cy="56.4" r="4.5" fill="#2a78d6"/>
-<text x="594" y="60.4" fill="#0b0b0b" font-size="12">host, 72 Grace cores</text>
 <path d="M78.0,253.5 L201.0,246.5 L324.0,233.7 L447.0,188.4 L570.0,114.7" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
 <circle cx="78.0" cy="253.5" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="201.0" cy="246.5" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="324.0" cy="233.7" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="447.0" cy="188.4" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="570.0" cy="114.7" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="584" cy="114.7" r="4.5" fill="#eb6834"/>
-<text x="594" y="118.7" fill="#0b0b0b" font-size="12">OpenMP target</text>
 <path d="M78.0,254.1 L201.0,248.2 L324.0,235.6 L447.0,190.4 L570.0,115.7" fill="none" stroke="#1baf7a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
 <circle cx="78.0" cy="254.1" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="201.0" cy="248.2" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="324.0" cy="235.6" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="447.0" cy="190.4" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="570.0" cy="115.7" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="584" cy="115.7" r="4.5" fill="#1baf7a"/>
-<text x="594" y="119.7" fill="#0b0b0b" font-size="12">Kokkos</text>
 <path d="M78.0,264.3 L201.0,253.1 L324.0,243.8 L447.0,192.5 L570.0,117.4" fill="none" stroke="#eda100" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
 <circle cx="78.0" cy="264.3" r="4.5" fill="#eda100" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="201.0" cy="253.1" r="4.5" fill="#eda100" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="324.0" cy="243.8" r="4.5" fill="#eda100" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="447.0" cy="192.5" r="4.5" fill="#eda100" stroke="#fcfcfb" stroke-width="2"/>
 <circle cx="570.0" cy="117.4" r="4.5" fill="#eda100" stroke="#fcfcfb" stroke-width="2"/>
-<circle cx="584" cy="117.4" r="4.5" fill="#eda100"/>
-<text x="594" y="121.4" fill="#0b0b0b" font-size="12">native CUDA</text>
+<circle cx="591" cy="60" r="4.5" fill="#2a78d6"/>
+<text x="601" y="64" fill="#0b0b0b" font-size="12">host, 72 Grace cores</text>
+<circle cx="591" cy="82" r="4.5" fill="#eb6834"/>
+<text x="601" y="86" fill="#0b0b0b" font-size="12">OpenMP target</text>
+<circle cx="591" cy="104" r="4.5" fill="#1baf7a"/>
+<text x="601" y="108" fill="#0b0b0b" font-size="12">Kokkos</text>
+<circle cx="591" cy="126" r="4.5" fill="#eda100"/>
+<text x="601" y="130" fill="#0b0b0b" font-size="12">native CUDA</text>
 </svg>
