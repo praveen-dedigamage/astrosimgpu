@@ -232,14 +232,25 @@ The neuron update needs the same treatment. It is a larger job because it emits
 spikes, so the per-thread spike collection has to be reworked into something a
 device can write to.
 
+Profiling the whole step rather than the phase changed the order of all of this.
+`docs/profiling.md` records the result: at a million astrocytes the device is
+idle 91 % of the time, consecutive kernels are 1,438 us apart, and the largest
+single cost in the step is `drive_astrocytes`, a serial host loop over every
+astrocyte that costs roughly 720 us against the kernel's 56. The transfers are
+also whole arrays, 8,000,000 bytes each way every step, of which under one per
+cent is read. The astrocyte phase these tables measure is about a tenth of the
+step it belongs to.
+
 ## Open questions
 
 These are the points where mentor input would be most useful:
 
-1. **Register pressure against occupancy.** RK4 over the neuron's seven state
-   variables requires many live values. If the kernel spills to memory, the
-   design assumption that state stays in registers fails. Is one thread per
-   cell correct, or should the RK stages be spread across a warp?
+1. **Register pressure against occupancy.** Measured for the astrocyte kernel in
+   `docs/profiling.md`: 94 registers per thread, nothing spilled, and occupancy
+   capped at 31 % by that allocation alone. The state does stay in registers, and
+   the price is that five blocks fit per SM. The question stands for the neuron
+   kernel, which carries seven state variables rather than three. Is one thread
+   per cell correct there, or should the RK stages be spread across a warp?
 2. **Single or double precision.** The Li-Rinzel calcium dynamics are
    moderately stiff, and `Ca_ER = (Ca_tot - Ca) / ratio_ER_cyt` subtracts
    similar quantities. FP64 is the safe default and roughly halves throughput.
@@ -248,16 +259,21 @@ These are the points where mentor input would be most useful:
 3. **Where the neuron update spends its time.** The split between the Poisson
    draw and the RK4 integration has not been measured. If the RNG dominates,
    the kernel needs a different structure.
-4. **Profiling a kernel with little memory traffic.** Once state is loaded, the
-   update touches almost no memory. Standard occupancy and bandwidth guidance
-   may not apply.
+4. **Profiling a kernel with little memory traffic.** Answered in
+   `docs/profiling.md`. The kernel is neither bandwidth bound nor divergent: it
+   is latency bound, with too few resident warps to cover the dependency chain
+   through the RK4 stages. What remains open is how far occupancy can be bought
+   back before spilling costs more than it returns.
 5. **SIC communication across devices.** Astrocyte-to-neuron coupling is
    continuous and independent of activity. It is transmitted every step whether
    or not anything happened. Calcium changes on a timescale of seconds, while
    `dt` is 0.1 ms. The signal may be transmitted far more often than the
-   dynamics require. Whether a longer exchange interval leaves the results
-   unchanged has not been tested, and the answer would be a property of the
-   model rather than of this implementation.
+   dynamics require. This has since been tested and is recorded in
+   `docs/experiments.md`: an interval of ten leaves both regimes intact, and at a
+   hundred a seed that synchronises at every shorter interval drops out of the
+   synchronised regime entirely. Ten is available and a hundred is not. What
+   remains open is what that interval buys once the coupling crosses a device
+   boundary rather than a function call.
 
 ## Staged plan
 
@@ -266,16 +282,26 @@ regression targets already exist: the calcium statistics printed at the end of
 a run, and the regime transition recorded in `docs/validation.md`. Correctness
 first, performance later.
 
-**Stage 2. Neuron kernel.** The remaining 92 %. Keep the delivery phases on the
+**Stage 2. Input generation and the per-step transfers.** Inserted after
+profiling the whole step rather than the phase, and ahead of the neuron kernel
+because it is larger. `drive_astrocytes` runs on one host thread over the entire
+population every step; it is per-cell with no communication and belongs on the
+device, which also removes the transfer across, since the input would no longer
+be assembled on the host. The transfer back is gated on `synapse.sic_interval`
+first and removed with SIC generation second. Annotate the phases with NVTX
+ranges before any of it, so the effect is visible on the timeline rather than
+inferred from counters. `docs/profiling.md` has the measurements.
+
+**Stage 3. Neuron kernel.** The remaining 92 %. Keep the delivery phases on the
 host and accept the transfers. Measure the new phase ratio.
 
-**Stage 3. Keep state on the device.** Once both populations are offloaded, the
+**Stage 4. Keep state on the device.** Once both populations are offloaded, the
 per-step transfers become the main cost. Move the ring buffers and delivery
 phases so that state remains on the device for the whole run.
 
-**Stage 4. Multiple devices.** Partition the network across the superchips in a
+**Stage 5. Multiple devices.** Partition the network across the superchips in a
 node and measure the cost of continuous SIC coupling between them. This
 addresses open question 5.
 
-Stages 1 and 2 are supported by the measured profile. Stages 3 and 4 are where
+Stages 1 to 3 are supported by the measured profile. Stages 4 and 5 are where
 the work produces a result rather than only a faster simulator.

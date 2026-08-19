@@ -19,3 +19,7 @@ compile_commands.json
 # Simulation output is CSV and is not tracked, but the measured figures the
 # documentation is built from are.
 !docs/data/*.csv
+
+# Plots are regenerated from that data, so they are output too. The profiler
+# screenshots are not: they come from a tool, not from a script here.
+!docs/img/*.png

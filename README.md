@@ -433,7 +433,8 @@ src/                   implementation and command-line front end
 config/                parameter sets, one per regime
 tests/                 component tests, no external framework
 scripts/               plotting, NEST default dump, Roihu build and baseline
-docs/                  code walkthrough, validation, GPU port plan, Roihu notes
+docs/                  code walkthrough, validation, GPU port plan, profiler
+                       results, Roihu notes
 ```
 
 ## Performance profile
@@ -474,6 +475,12 @@ probability, which is why their delivery phases grow with scale.
 Whether offloading the update is worth anything therefore depends on which
 scaling the science uses. `docs/gpu-port.md` works through the consequences and
 `docs/experiments.md` lists what is being measured next.
+
+The phases above are host timings taken by the program itself. `docs/profiling.md`
+records what Nsight Compute and Nsight Systems measure underneath them: at a
+million astrocytes the device is idle 91 % of the step, the kernel is held to
+31 % occupancy by register pressure alone, and the largest single cost in the
+step is a serial host loop that generates the astrocyte input.
 
 ## Parameter sources
 
