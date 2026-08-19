@@ -94,7 +94,7 @@ correctly; the benchmark says the arithmetic underneath them is right. Passing
 either alone would not be convincing. `docs/validation.md` records both,
 together with four errors found while getting there, each of which produced
 entirely plausible output, and the checks that remain outstanding. The commands
-are under "Run".
+are under "How to run".
 
 ## Current status
 
@@ -112,7 +112,7 @@ what it does and does not establish.
 
 ## Why we implemented this code base
 
-The reference implementation is the authority on the model. This one exists
+The reference implementation is the authority on the model. We built this one
 because three things are awkward through the NEST Python interface:
 
 1. **It builds with only a C++17 compiler.** No NEST, MPI, GSL, or conda
@@ -126,8 +126,8 @@ because three things are awkward through the NEST Python interface:
    astrocyte update has already been restructured into device-callable free
    functions.
 
-Use the reference implementation for published results. Use this one to
-explore, to profile, or to experiment with the numerics.
+Use the reference implementation for published results. We use this one to
+explore, to profile, and to experiment with the numerics.
 
 ## How to build
 
@@ -156,7 +156,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DASTROSIMGPU_NATIVE=ON
 cmake --build build -j
 ```
 
-## Run
+## How to run
 
 ```bash
 make test                                      # 86 component checks
