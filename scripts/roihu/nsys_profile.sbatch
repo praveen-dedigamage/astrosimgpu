@@ -67,6 +67,17 @@ echo
 ASTRO=${ASTRO:-1000000}
 SIM=${SIM:-20}
 PRE=${PRE:-5}
+
+# CPU call-stack sampling, on by default: this is what shows *which host
+# function* (drive_astrocytes, deliver_spikes, ...) is running during the
+# idle-GPU gap between kernel launches, on the same timeline as the CUDA
+# activity below. Set CPU_SAMPLE=0 to skip it (smaller, faster report) if you
+# only want the GPU-side tables.
+CPU_SAMPLE=${CPU_SAMPLE:-1}
+SAMPLE_FLAGS=()
+if [[ "$CPU_SAMPLE" == "1" ]]; then
+    SAMPLE_FLAGS=(--sample=cpu --backtrace=dwarf)
+fi
 OUT=${OUT:-astro_timeline}
 
 echo "config : config/kernel_scaling.json --astrocytes $ASTRO -t $SIM -p $PRE"
@@ -78,6 +89,7 @@ mkdir -p /tmp/nsys.$$
 # PYTHONNOUSERSITE=1 works around 'unknown encoding: utf-8-sig' when nsys
 # post-processes the report with Roihu's Python; see docs/profiling.md.
 PYTHONNOUSERSITE=1 nsys profile -o "$OUT" --stats=true --force-overwrite=true \
+    "${SAMPLE_FLAGS[@]}" \
     "$BIN" --config config/kernel_scaling.json --astrocytes "$ASTRO" \
     -t "$SIM" -p "$PRE" -o "/tmp/nsys.$$"
 
@@ -86,6 +98,14 @@ echo "=============== summary ==============="
 echo "Kernel / memcpy time is in the --stats=true tables above:"
 echo "  cudaapisum / gpukernsum / gpumemtimesum are the ones docs/profiling.md"
 echo "  reads (kernel share, transfer share, and by elimination, idle share)."
+if [[ "$CPU_SAMPLE" == "1" ]]; then
+    echo
+    echo "CPU call stacks were also sampled (--sample=cpu). They are not in the"
+    echo "text tables above -- open ${OUT}.nsys-rep in the Nsight Systems GUI"
+    echo "and look at the CPU row under the process: each sample is a stack,"
+    echo "so you can see which host function (e.g. drive_astrocytes) is"
+    echo "running during the gaps between astro_update_kernel launches."
+fi
 echo
 
 # The .sqlite export lets you query specific rows directly (this is how the
