@@ -1,5 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=astrosimgpu-nsys
+#SBATCH --account=project_2020568
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00
 #SBATCH --nodes=1
@@ -8,11 +9,6 @@
 #SBATCH --gres=gpu:gh200:1
 #SBATCH --output=nsys-%j.out
 #SBATCH --error=nsys-%j.err
-
-# The account is not set here. Export SBATCH_ACCOUNT (and SLURM_ACCOUNT for
-# srun) instead, so switching project does not mean editing every script:
-#
-#   export SBATCH_ACCOUNT=project_XXXXXXX
 
 # Nsight Systems: where one step goes in time (host and device), as opposed to
 # Nsight Compute (ncu), which profiles a single kernel launch in detail. See
@@ -88,7 +84,13 @@ mkdir -p /tmp/nsys.$$
 
 # PYTHONNOUSERSITE=1 works around 'unknown encoding: utf-8-sig' when nsys
 # post-processes the report with Roihu's Python; see docs/profiling.md.
-PYTHONNOUSERSITE=1 nsys profile -o "$OUT" --stats=true --force-overwrite=true \
+# -t adds nvtx explicitly to CSC's own recommended trace set (nvtx,cuda) --
+# nvtx picks up the phase ranges just added to Network::run; osrt is kept on
+# top of CSC's default so the OS-runtime/futex thread-state view still shows.
+# srun (CSC's documented pattern for this cluster) wraps the whole nsys
+# invocation, not just the target binary -- nsys launches it as a child.
+PYTHONNOUSERSITE=1 srun nsys profile -o "$OUT" -t cuda,nvtx,osrt \
+    --stats=true --force-overwrite=true \
     "${SAMPLE_FLAGS[@]}" \
     "$BIN" --config config/kernel_scaling.json --astrocytes "$ASTRO" \
     -t "$SIM" -p "$PRE" -o "/tmp/nsys.$$"
@@ -98,6 +100,9 @@ echo "=============== summary ==============="
 echo "Kernel / memcpy time is in the --stats=true tables above:"
 echo "  cudaapisum / gpukernsum / gpumemtimesum are the ones docs/profiling.md"
 echo "  reads (kernel share, transfer share, and by elimination, idle share)."
+echo "  nvtx_sum, new since the phase ranges were added to Network::run, gives"
+echo "  the same six-phase split PhaseProfile prints, but per-launch instead"
+echo "  of only totalled at the end of the run."
 if [[ "$CPU_SAMPLE" == "1" ]]; then
     echo
     echo "CPU call stacks were also sampled (--sample=cpu). They are not in the"

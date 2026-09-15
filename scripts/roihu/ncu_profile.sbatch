@@ -1,5 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=astrosimgpu-ncu
+#SBATCH --account=project_2020568
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00
 #SBATCH --nodes=1
@@ -8,11 +9,6 @@
 #SBATCH --gres=gpu:gh200:1
 #SBATCH --output=ncu-%j.out
 #SBATCH --error=ncu-%j.err
-
-# The account is not set here. Export SBATCH_ACCOUNT (and SLURM_ACCOUNT for
-# srun) instead, so switching project does not mean editing every script:
-#
-#   export SBATCH_ACCOUNT=project_XXXXXXX
 
 # Nsight Compute: one kernel, in detail -- registers, occupancy, stall
 # reasons, memory throughput. This is what produced the "limited by
@@ -81,7 +77,9 @@ echo
 
 mkdir -p /tmp/ncu.$$
 
-PYTHONNOUSERSITE=1 ncu --set full -k regex:astro -o "$OUT" --force-overwrite \
+# srun (CSC's documented pattern for this cluster) wraps the whole ncu
+# invocation; ncu launches the target binary as its child.
+PYTHONNOUSERSITE=1 srun ncu --set full -k regex:astro -o "$OUT" --force-overwrite \
     --print-summary per-kernel \
     "$BIN" --config config/kernel_scaling.json --astrocytes "$ASTRO" \
     -t "$SIM" -p "$PRE" -o "/tmp/ncu.$$"

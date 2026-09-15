@@ -1,5 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=astrosimgpu-cuda
+#SBATCH --account=project_2020568
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00
 #SBATCH --nodes=1
@@ -8,11 +9,6 @@
 #SBATCH --gres=gpu:gh200:1
 #SBATCH --output=cuda-%j.out
 #SBATCH --error=cuda-%j.err
-
-# The account is not set here. Export SBATCH_ACCOUNT (and SLURM_ACCOUNT for
-# srun) instead, so switching project does not mean editing every script:
-#
-#   export SBATCH_ACCOUNT=project_XXXXXXX
 
 # Native CUDA backend only: correctness, then astrocyte-update throughput
 # against population size. No comparison against the other backends -- that
@@ -56,13 +52,13 @@ echo
 # Confirm the binary really is the CUDA backend before trusting anything
 # below. A CMake misconfiguration builds the host path silently.
 echo "=============== backend check ==============="
-"$BIN" --config config/quick.json -o /tmp/cuda-backend-check.$$ >/dev/null 2>&1
+srun "$BIN" --config config/quick.json -o /tmp/cuda-backend-check.$$ >/dev/null 2>&1
 grep 'astrocyte backend' "/tmp/cuda-backend-check.$$/run.txt"
 echo
 
 # Correctness first: a fast wrong answer is not a result.
 echo "=============== component tests ==============="
-"$TESTS"
+srun "$TESTS"
 echo
 
 # The regime transition is the model-level check: near-zero correlation
@@ -71,11 +67,11 @@ echo
 echo "=============== regime transition ==============="
 printf "%-10s %14s %14s\n" "config" "correlation" "expected"
 
-async=$("$BIN" --config config/use_case.json -t 60000 -o results/cuda-async \
+async=$(srun "$BIN" --config config/use_case.json -t 60000 -o results/cuda-async \
     2>/dev/null | awk '/mean pairwise/ {print $NF}')
 printf "%-10s %14s %14s\n" "async" "${async:-FAILED}" "0.0106"
 
-burst=$("$BIN" --config config/bursting.json -t 60000 -o results/cuda-burst \
+burst=$(srun "$BIN" --config config/bursting.json -t 60000 -o results/cuda-burst \
     2>/dev/null | awk '/mean pairwise/ {print $NF}')
 printf "%-10s %14s %14s\n" "bursting" "${burst:-FAILED}" "0.4177"
 echo
@@ -95,7 +91,7 @@ echo "steps: $STEPS measured (${PRE}ms transient discarded, ${SIM}ms recorded, d
 printf "%-12s %14s %14s\n" "astrocytes" "total_s" "us/step"
 
 for n in $SIZES; do
-    t=$("$BIN" --config config/kernel_scaling.json --astrocytes "$n" \
+    t=$(srun "$BIN" --config config/kernel_scaling.json --astrocytes "$n" \
         -t "$SIM" -p "$PRE" -o "results/cuda-ks-$n" 2>/dev/null \
         | awk '/update astrocytes/ {print $3}')
     [[ -z "$t" ]] && t=0
