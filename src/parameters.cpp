@@ -152,6 +152,7 @@ ModelConfig load_config(const std::string& path) {
         c.get_to("pool_size", cfg.conn.pool_size);
         c.get_to("allow_autapses", cfg.conn.allow_autapses);
         c.get_to("unique_third_out", cfg.conn.unique_third_out);
+        c.get_to("max_astro_out_degree", cfg.conn.max_astro_out_degree);
         std::string pool_type = "block";
         c.get_to("pool_type", pool_type);
         if (pool_type == "block") {
@@ -186,6 +187,10 @@ ModelConfig load_config(const std::string& path) {
     }
     if (cfg.conn.pool_size < 1) {
         throw std::runtime_error("connectivity.pool_size must be at least 1");
+    }
+    if (cfg.conn.max_astro_out_degree < 0) {
+        throw std::runtime_error(
+            "connectivity.max_astro_out_degree must be 0 (unlimited) or positive");
     }
 
     // A key nobody read is almost always a stale binary or a typo. Both would

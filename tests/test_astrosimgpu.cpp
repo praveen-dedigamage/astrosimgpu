@@ -426,6 +426,51 @@ void test_network_build() {
           "a different seed gives a different network");
 }
 
+void test_astro_out_degree_cap() {
+    // Deliberately adversarial: a small pool (so recruitment concentrates on
+    // few astrocytes) with near-certain primary and third-factor connection,
+    // so every astrocyte tries hard to exceed a small cap.
+    ModelConfig cfg;
+    cfg.N = {5, 60, 20};
+    cfg.time.dt = 0.1;
+    cfg.time.substeps = 1;
+    cfg.time.pre_sim_time = 0.0;
+    cfg.time.sim_time = 20.0;
+    cfg.conn.p_primary = 0.9;
+    cfg.conn.p_third_if_primary = 0.9;
+    cfg.conn.pool_size = 2;
+    cfg.conn.pool_type = PoolType::Random;
+    cfg.seed = 3;
+
+    Network uncapped(cfg);
+    uncapped.build();
+    check(uncapped.stats().max_astro_out_degree > 5,
+          "uncapped adversarial config does concentrate load past the cap "
+          "we are about to apply (otherwise this test proves nothing)");
+
+    ModelConfig capped = cfg;
+    capped.conn.max_astro_out_degree = 5;
+    Network net(capped);
+    net.build();
+    check(net.stats().max_astro_out_degree <= 5,
+          "max_astro_out_degree is a hard ceiling, not a target");
+    check(net.stats().n_astro_to_neuron < uncapped.stats().n_astro_to_neuron,
+          "the cap actually dropped tripartite edges to enforce itself");
+    check(net.stats().n_primary_exc == uncapped.stats().n_primary_exc,
+          "the primary neuron-to-neuron synapses are unaffected by the cap");
+
+    // Several seeds, same adversarial shape: the ceiling must hold regardless
+    // of which astrocytes happen to get recruited.
+    for (std::int64_t seed = 0; seed < 8; ++seed) {
+        ModelConfig sweep = capped;
+        sweep.seed = seed;
+        Network swept(sweep);
+        swept.build();
+        check(swept.stats().max_astro_out_degree <= 5,
+              "cap holds across seeds " + std::to_string(seed));
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -444,6 +489,7 @@ int main() {
         {"alpha conductance", test_alpha_conductance},
         {"analysis", test_analysis},
         {"network build", test_network_build},
+        {"astro out-degree cap", test_astro_out_degree_cap},
     };
 
     for (const Case& c : cases) {

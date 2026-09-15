@@ -87,6 +87,11 @@ std::string format_summary(const Network& net, const NetworkStats& s, double wal
     os << "inh -> neuron synapses " << s.n_primary_inh << "\n";
     os << "neuron -> astrocyte    " << s.n_neuron_to_astro << "\n";
     os << "astrocyte -> neuron    " << s.n_astro_to_neuron << "\n";
+    os << "max astro out-degree  " << s.max_astro_out_degree;
+    if (c.conn.max_astro_out_degree > 0) {
+        os << " (capped at " << c.conn.max_astro_out_degree << ")";
+    }
+    os << "\n";
     os << "\n";
     os << "dt                    " << c.time.dt << " ms (" << c.time.substeps << " substeps)\n";
     // Recorded because a timing is not interpretable without it. A host figure

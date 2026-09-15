@@ -83,6 +83,14 @@ void Network::build() {
   stats_.n_neuron_to_astro = neuron_astro_.size();
   stats_.n_astro_to_neuron = astro_neuron_.size();
 
+  // astro_neuron_ is CSR keyed by astrocyte, so each row's span is that
+  // astrocyte's actual out-degree -- what max_astro_out_degree caps.
+  stats_.max_astro_out_degree = 0;
+  for (index_t a = 0; a + 1 < static_cast<index_t>(astro_neuron_.row_start.size()); ++a) {
+    const index_t degree = astro_neuron_.row_start[a + 1] - astro_neuron_.row_start[a];
+    stats_.max_astro_out_degree = std::max(stats_.max_astro_out_degree, degree);
+  }
+
   // Ring depth covers the longest delay.
   const real dt = cfg_.time.dt;
   int max_delay = 1;
@@ -149,15 +157,44 @@ void Network::build_primary_connections(CounterRng& rng) {
         }
       } else {
         // Sample without replacement.
-        vec<index_t> candidates(n_astro);
-        for (index_t i = 0; i < n_astro; ++i) {
-          candidates[i] = i;
-        }
         const int take = std::min<int>(cfg_.conn.pool_size, static_cast<int>(n_astro));
-        for (int k = 0; k < take; ++k) {
-          const auto pick = static_cast<std::size_t>(rng.uniform() * (candidates.size() - k)) + k;
-          std::swap(candidates[k], candidates[std::min(pick, candidates.size() - 1)]);
-          pool[post].push_back(candidates[k]);
+        if (take > 0 && static_cast<std::int64_t>(take) * 4 >=
+                             static_cast<std::int64_t>(n_astro)) {
+          // take is a large fraction of n_astro: rejection sampling below
+          // would thrash on collisions, so fall back to the exact
+          // shuffle. Only reached when n_astro itself is small (pool_size
+          // is fixed and small in every config this repo uses), so the
+          // O(n_astro) cost here stays cheap.
+          vec<index_t> candidates(n_astro);
+          for (index_t i = 0; i < n_astro; ++i) {
+            candidates[i] = i;
+          }
+          for (int k = 0; k < take; ++k) {
+            const auto pick =
+                static_cast<std::size_t>(rng.uniform() * (candidates.size() - k)) + k;
+            std::swap(candidates[k], candidates[std::min(pick, candidates.size() - 1)]);
+            pool[post].push_back(candidates[k]);
+          }
+        } else {
+          // The common case: pool_size is tiny next to n_astro, so
+          // rejection sampling directly into pool[post] is O(pool_size)
+          // expected work and never allocates an n_astro-sized array --
+          // unlike the shuffle above, whose per-neuron O(n_astro) cost is
+          // what made large sweeps (100k+ neurons) impractical to build.
+          while (static_cast<int>(pool[post].size()) < take) {
+            const auto candidate =
+                static_cast<index_t>(rng.uniform() * static_cast<double>(n_astro)) % n_astro;
+            bool dup = false;
+            for (index_t existing : pool[post]) {
+              if (existing == candidate) {
+                dup = true;
+                break;
+              }
+            }
+            if (!dup) {
+              pool[post].push_back(candidate);
+            }
+          }
         }
       }
     }
@@ -170,14 +207,56 @@ void Network::build_primary_connections(CounterRng& rng) {
   // several times. That sets the scale of the current it receives.
   std::unordered_set<std::uint64_t> a2n_seen;
 
+  // Tracks how many times each astrocyte has been recruited as the third
+  // factor so far, so max_astro_out_degree can be enforced below. Left at
+  // size 0 (and the cap left inert) when the limit is disabled.
+  vec<index_t> astro_out_degree;
+  const bool cap_astro_degree = cfg_.conn.max_astro_out_degree > 0;
+  if (cap_astro_degree) {
+    astro_out_degree.assign(n_astro, 0);
+  }
+
+  // Distance to the next candidate independently included under
+  // Bernoulli(p), i.e. how many excluded candidates come before the next
+  // included one. Same distribution as testing every candidate one at a
+  // time and keeping it with probability p, but costs one draw per
+  // *included* candidate instead of one per candidate tested -- the
+  // difference between O(expected connections) and O(population), which is
+  // what makes generating connectivity for networks past a few thousand
+  // cells practical (see docs/experiments.md and the neuron-scaling sweep).
+  // `remaining` bounds the result so a very small p cannot push the
+  // caller's running position past the end of its range.
+  auto geometric_skip = [&](real p, index_t remaining) -> index_t {
+    if (remaining == 0 || p >= 1.0) {
+      return 0;
+    }
+    if (p <= 0.0) {
+      return remaining;
+    }
+    real u = rng.uniform();
+    if (u >= 1.0) {
+      u = std::nextafter(static_cast<real>(1.0), static_cast<real>(0.0));
+    }
+    const real g = std::floor(std::log1p(-u) / std::log1p(-p));
+    return (g >= static_cast<real>(remaining)) ? remaining : static_cast<index_t>(g);
+  };
+
   auto connect_block = [&](index_t post_offset, index_t post_count) {
     for (index_t pre = 0; pre < n_exc; ++pre) {
-      for (index_t local = 0; local < post_count; ++local) {
-        const index_t post = post_offset + local;
-        if (!cfg_.conn.allow_autapses && pre == post) {
-          continue;
+      index_t pos = 0;
+      while (pos < post_count) {
+        pos += geometric_skip(cfg_.conn.p_primary, post_count - pos);
+        if (pos >= post_count) {
+          break;
         }
-        if (rng.uniform() >= cfg_.conn.p_primary) {
+        const index_t post = post_offset + pos;
+        ++pos;
+
+        // The autapse slot, when it falls in range, is simply dropped here
+        // rather than excluded from the trial beforehand as the old dense
+        // sweep did -- a bias smaller than one connection in expectation,
+        // negligible at any population size this generates.
+        if (!cfg_.conn.allow_autapses && pre == post) {
           continue;
         }
         exc_targets[pre].push_back(post);
@@ -189,10 +268,21 @@ void Network::build_primary_connections(CounterRng& rng) {
         const index_t astro =
             p[static_cast<std::size_t>(rng.uniform() * p.size()) % p.size()];
 
+        // The primary neuron-to-neuron synapse above still stands; only the
+        // tripartite edge is dropped once this astrocyte is saturated.
+        if (cap_astro_degree &&
+            astro_out_degree[astro] >=
+                static_cast<index_t>(cfg_.conn.max_astro_out_degree)) {
+          continue;
+        }
+
         astro_targets[pre].push_back(astro);
         if (!cfg_.conn.unique_third_out ||
             a2n_seen.insert(pair_key(astro, post)).second) {
           a2n_targets[astro].push_back(post);
+        }
+        if (cap_astro_degree) {
+          ++astro_out_degree[astro];
         }
       }
     }
@@ -205,13 +295,18 @@ void Network::build_primary_connections(CounterRng& rng) {
   // Inhibitory neurons project to both populations, no astrocytes.
   for (index_t pre = 0; pre < n_inh; ++pre) {
     const index_t pre_global = n_exc + pre;
-    for (index_t post = 0; post < n_neurons; ++post) {
+    index_t pos = 0;
+    while (pos < n_neurons) {
+      pos += geometric_skip(cfg_.conn.p_primary, n_neurons - pos);
+      if (pos >= n_neurons) {
+        break;
+      }
+      const index_t post = pos;
+      ++pos;
       if (!cfg_.conn.allow_autapses && pre_global == post) {
         continue;
       }
-      if (rng.uniform() < cfg_.conn.p_primary) {
-        inh_targets[pre].push_back(post);
-      }
+      inh_targets[pre].push_back(post);
     }
   }
 

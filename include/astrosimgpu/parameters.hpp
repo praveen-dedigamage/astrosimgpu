@@ -116,6 +116,12 @@ struct ConnectivityParams {
     /// duplicates divides the current a neuron receives by the number of
     /// synapses that recruited the astrocyte, which here is around sixteen.
     bool unique_third_out = false;
+
+    /// Cap on how many times one astrocyte may be recruited as the third
+    /// factor. 0 means unlimited. A candidate recruitment that would push an
+    /// astrocyte past this is simply skipped -- the primary neuron-to-neuron
+    /// synapse it rode in on still forms, only the tripartite edge does not.
+    int max_astro_out_degree = 0;
 };
 
 /// Background drive.

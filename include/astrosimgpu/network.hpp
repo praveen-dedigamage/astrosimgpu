@@ -52,6 +52,8 @@ struct NetworkStats {
     index_t n_primary_inh = 0;
     index_t n_neuron_to_astro = 0;
     index_t n_astro_to_neuron = 0;
+    index_t max_astro_out_degree = 0;  ///< largest number of neurons any one
+                                        ///< astrocyte actually connects to
 };
 
 /// The tripartite neuron-astrocyte network and its time loop.

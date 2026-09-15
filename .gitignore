@@ -23,3 +23,6 @@ compile_commands.json
 # Plots are regenerated from that data, so they are output too. The profiler
 # screenshots are not: they come from a tool, not from a script here.
 !docs/img/*.png
+
+__pycache__/
+*.pyc

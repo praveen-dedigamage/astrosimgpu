@@ -60,9 +60,22 @@ echo
 # Short window: this profiles the whole step at normal speed (no replay, so
 # unlike ncu it does not distort per-step timing), and the pattern repeats
 # every step, so seconds are enough to see the shape.
-ASTRO=${ASTRO:-1000000}
+#
+# CONFIG picks which network to profile -- default is the astro-only
+# kernel_scaling.json sweep (neurons fixed at 500), which is why ASTRO
+# defaults to overriding N_A to 1,000,000, matching the documented baseline
+# in docs/profiling.md. Point CONFIG at a fixed-in-degree config instead
+# (e.g. config/neuron_scale_500.json) to profile a network where neurons
+# scale too; pass ASTRO="" in that case so the config's own N_A is used
+# rather than overridden.
+CONFIG=${CONFIG:-config/kernel_scaling.json}
+ASTRO=${ASTRO-1000000}
 SIM=${SIM:-20}
 PRE=${PRE:-5}
+ASTRO_FLAGS=()
+if [[ -n "$ASTRO" ]]; then
+    ASTRO_FLAGS=(--astrocytes "$ASTRO")
+fi
 
 # CPU call-stack sampling, on by default: this is what shows *which host
 # function* (drive_astrocytes, deliver_spikes, ...) is running during the
@@ -76,7 +89,7 @@ if [[ "$CPU_SAMPLE" == "1" ]]; then
 fi
 OUT=${OUT:-astro_timeline}
 
-echo "config : config/kernel_scaling.json --astrocytes $ASTRO -t $SIM -p $PRE"
+echo "config : $CONFIG ${ASTRO_FLAGS[*]} -t $SIM -p $PRE"
 echo "report : $PWD/${OUT}.nsys-rep"
 echo
 
@@ -92,7 +105,7 @@ mkdir -p /tmp/nsys.$$
 PYTHONNOUSERSITE=1 srun nsys profile -o "$OUT" -t cuda,nvtx,osrt \
     --stats=true --force-overwrite=true \
     "${SAMPLE_FLAGS[@]}" \
-    "$BIN" --config config/kernel_scaling.json --astrocytes "$ASTRO" \
+    "$BIN" --config "$CONFIG" "${ASTRO_FLAGS[@]}" \
     -t "$SIM" -p "$PRE" -o "/tmp/nsys.$$"
 
 echo

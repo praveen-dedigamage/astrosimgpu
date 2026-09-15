@@ -66,12 +66,25 @@ echo
 # Very short window: --set full replays every launch, so keep the number of
 # launches small. The kernel's per-launch shape does not depend on how many
 # steps run, only on the population size.
-ASTRO=${ASTRO:-1000000}
+#
+# CONFIG picks which network to profile -- default is the astro-only
+# kernel_scaling.json sweep (neurons fixed at 500), which is why ASTRO
+# defaults to overriding N_A to 1,000,000. Point CONFIG at a fixed-in-degree
+# config instead (e.g. config/neuron_scale_500.json) to profile the
+# astrocyte kernel's actual shape under a network where neurons scale too;
+# pass ASTRO="" in that case so the config's own N_A is used rather than
+# overridden.
+CONFIG=${CONFIG:-config/kernel_scaling.json}
+ASTRO=${ASTRO-1000000}
 SIM=${SIM:-2}
 PRE=${PRE:-1}
 OUT=${OUT:-astro_kernel}
+ASTRO_FLAGS=()
+if [[ -n "$ASTRO" ]]; then
+    ASTRO_FLAGS=(--astrocytes "$ASTRO")
+fi
 
-echo "config : config/kernel_scaling.json --astrocytes $ASTRO -t $SIM -p $PRE"
+echo "config : $CONFIG ${ASTRO_FLAGS[*]} -t $SIM -p $PRE"
 echo "report : $PWD/${OUT}.ncu-rep"
 echo
 
@@ -81,7 +94,7 @@ mkdir -p /tmp/ncu.$$
 # invocation; ncu launches the target binary as its child.
 PYTHONNOUSERSITE=1 srun ncu --set full -k regex:astro -o "$OUT" --force-overwrite \
     --print-summary per-kernel \
-    "$BIN" --config config/kernel_scaling.json --astrocytes "$ASTRO" \
+    "$BIN" --config "$CONFIG" "${ASTRO_FLAGS[@]}" \
     -t "$SIM" -p "$PRE" -o "/tmp/ncu.$$"
 
 echo
