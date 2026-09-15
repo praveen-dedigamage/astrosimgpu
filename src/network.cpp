@@ -7,6 +7,19 @@
 #include <sstream>
 #include <unordered_set>
 
+// Labels the phases below on the nsys timeline. Header-only in NVTX v3 --
+// nothing to link -- so this only needs the include path, wired in
+// CMakeLists.txt for the CUDA build. A no-op everywhere else, so the default
+// host-only build carries no dependency on it.
+#if defined(ASTROSIMGPU_CUDA)
+#include <nvtx3/nvToolsExt.h>
+#define ASTROSIMGPU_NVTX_PUSH(name) nvtxRangePushA(name)
+#define ASTROSIMGPU_NVTX_POP() nvtxRangePop()
+#else
+#define ASTROSIMGPU_NVTX_PUSH(name)
+#define ASTROSIMGPU_NVTX_POP()
+#endif
+
 namespace astrosimgpu {
 
 namespace {
@@ -393,45 +406,57 @@ void Network::run(Recorder &recorder) {
     }
 
     auto t = clock::now();
+    ASTROSIMGPU_NVTX_PUSH("apply_arrivals");
     apply_arrivals(step);
+    ASTROSIMGPU_NVTX_POP();
     if (measured) {
       profile_.deliver += tick(t);
     }
 
     // Per-cell work with no communication, so timed apart from delivery.
     t = clock::now();
+    ASTROSIMGPU_NVTX_PUSH("drive_astrocytes");
     drive_astrocytes(step);
+    ASTROSIMGPU_NVTX_POP();
     if (measured) {
       profile_.input_gen += tick(t);
     }
 
     t = clock::now();
+    ASTROSIMGPU_NVTX_PUSH("update_astro");
     astro_.device_push_input();
     astro_.update(cfg_.time, step, cfg_.seed);
     // deliver_sic reads calcium on the host.
     astro_.device_pull_calcium();
     astro_.clear_inputs(astro_input_sinks_);
+    ASTROSIMGPU_NVTX_POP();
     if (measured) {
       profile_.update_astro += tick(t);
     }
 
     t = clock::now();
+    ASTROSIMGPU_NVTX_PUSH("update_neuron");
     spike_buffer_.clear();
     neurons_.update(cfg_.time, step, cfg_.seed, spike_buffer_);
+    ASTROSIMGPU_NVTX_POP();
     if (measured) {
       profile_.update_neuron += tick(t);
     }
 
     t = clock::now();
+    ASTROSIMGPU_NVTX_PUSH("deliver_spikes");
     deliver_spikes(spike_buffer_, step);
+    ASTROSIMGPU_NVTX_POP();
     if (measured) {
       profile_.spike_cd += tick(t);
     }
 
     t = clock::now();
+    ASTROSIMGPU_NVTX_PUSH("deliver_sic");
     if (step % cfg_.syn.sic_interval == 0) {
       deliver_sic(step);
     }
+    ASTROSIMGPU_NVTX_POP();
     if (measured) {
       profile_.sic_gd += tick(t);
     }

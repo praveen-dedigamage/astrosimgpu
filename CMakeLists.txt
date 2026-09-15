@@ -77,6 +77,11 @@ if(ASTROSIMGPU_CUDA)
   target_sources(astrosimgpu_core PRIVATE src/astrocyte_cuda.cu)
   target_compile_definitions(astrosimgpu_core PUBLIC ASTROSIMGPU_CUDA)
   set_target_properties(astrosimgpu_core PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+  # network.cpp is compiled by the host compiler, not nvcc, but it needs
+  # <nvtx3/...> for the phase-timing ranges nsys reads. enable_language(CUDA)
+  # populates this variable with the toolkit's include path; NVTX v3 itself
+  # is header-only, so nothing needs linking.
+  target_include_directories(astrosimgpu_core PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
   message(STATUS "Native CUDA backend, architecture ${CMAKE_CUDA_ARCHITECTURES}")
 endif()
 
