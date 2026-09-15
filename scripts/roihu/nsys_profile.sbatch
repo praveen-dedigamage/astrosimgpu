@@ -113,7 +113,7 @@ mkdir -p /tmp/nsys.$$
 # top of CSC's default so the OS-runtime/futex thread-state view still shows.
 # srun (CSC's documented pattern for this cluster) wraps the whole nsys
 # invocation, not just the target binary -- nsys launches it as a child.
-PYTHONNOUSERSITE=1 srun nsys profile -o "$OUT" -t cuda,nvtx,osrt \
+PYTHONNOUSERSITE=1 srun --export=ALL nsys profile -o "$OUT" -t cuda,nvtx,osrt \
     --stats=true --force-overwrite=true \
     "${SAMPLE_FLAGS[@]}" \
     "$BIN" --config "$CONFIG" "${ASTRO_FLAGS[@]}" \

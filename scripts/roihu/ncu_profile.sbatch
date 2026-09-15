@@ -103,7 +103,7 @@ mkdir -p /tmp/ncu.$$
 
 # srun (CSC's documented pattern for this cluster) wraps the whole ncu
 # invocation; ncu launches the target binary as its child.
-PYTHONNOUSERSITE=1 srun ncu --set full -k regex:astro -o "$OUT" --force-overwrite \
+PYTHONNOUSERSITE=1 srun --export=ALL ncu --set full -k regex:astro -o "$OUT" --force-overwrite \
     --print-summary per-kernel \
     "$BIN" --config "$CONFIG" "${ASTRO_FLAGS[@]}" \
     -t "$SIM" -p "$PRE" -o "/tmp/ncu.$$"
