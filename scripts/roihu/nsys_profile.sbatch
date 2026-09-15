@@ -39,6 +39,17 @@ set -uo pipefail
 
 module load nvhpc/26.3
 
+# Idle OpenMP threads spin-wait by default. deliver_spikes/apply_arrivals
+# run serially between two large parallel regions (drive_astrocytes,
+# update_neuron) every step; on a 72-core node the 71 idle spinning
+# threads contend for memory/cache bandwidth with that serial code and
+# inflate its measured cost by roughly 10x -- confirmed empirically: at
+# 10,000 neurons deliver phases measured 47.37% active vs 4.84% passive,
+# update_neuron 34.21% vs 93.09%, the latter matching the host-only build.
+# This has nothing to do with the model; it is purely a wait-policy
+# artifact on many-core hardware.
+export OMP_WAIT_POLICY=PASSIVE
+
 BIN=build-cuda/astrosimgpu
 if [[ ! -x "$BIN" ]]; then
     echo "MISSING: $BIN -- build it first, see the header of this script" >&2
