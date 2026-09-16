@@ -425,7 +425,7 @@ void Network::apply_arrivals(std::int64_t step) {
   const index_t n_neurons = neurons_.size();
 
   // Each iteration only touches its own cell's slots, so no races.
-  #pragma omp parallel for
+  #pragma omp parallel for schedule(static)
   for (index_t i = 0; i < n_neurons; ++i) {
     if (ex[i] != 0.0) {
       neurons_.add_synaptic_input(i, ex[i]);
