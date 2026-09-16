@@ -77,7 +77,7 @@ SIZES="${SIZES:-500 1000 2000 5000 10000 100000 1000000 10000000}"
 # between two job outputs. HISTORY_COLS documents the column order used by
 # both the writer below and the lookup that reads it back.
 HISTORY="${HISTORY:-results/sweep_history.csv}"
-HISTORY_COLS="timestamp,jobid,commit,neurons,N_A,synapses,max_astro_deg,astro_pct,neuron_pct,deliver_pct,other_pct,us_step,wall_s"
+HISTORY_COLS="timestamp,jobid,commit,neurons,N_A,synapses,max_astro_deg,astro_pct,neuron_pct,deliver_pct,other_pct,us_step,wall_s,input_pct"
 mkdir -p "$(dirname "$HISTORY")"
 if [[ ! -f "$HISTORY" ]]; then
     echo "$HISTORY_COLS" > "$HISTORY"
@@ -87,9 +87,9 @@ TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 echo "history: $HISTORY (commit $COMMIT)"
 echo
 
-printf "%-10s %10s %10s %14s %10s %10s %10s %10s %14s %12s %10s\n" \
-    "neurons" "N_A" "synapses" "max_astro_deg" "astro%" "neuron%" "deliver%" "other%" "us/step" "prev_us/step" "delta"
-printf '%.0s-' {1..135}; echo
+printf "%-10s %10s %10s %14s %10s %10s %10s %10s %10s %14s %12s %10s\n" \
+    "neurons" "N_A" "synapses" "max_astro_deg" "input%" "astro%" "neuron%" "deliver%" "other%" "us/step" "prev_us/step" "delta"
+printf '%.0s-' {1..145}; echo
 
 for n in $SIZES; do
     cfg="config/neuron_scale_${n}.json"
@@ -115,6 +115,11 @@ for n in $SIZES; do
     n_primary_exc=$(awk '/exc -> neuron synapses/ {print $5}' "$out")
     n_primary_inh=$(awk '/inh -> neuron synapses/ {print $5}' "$out")
     synapses=$(( ${n_primary_exc:-0} + ${n_primary_inh:-0} + ${n2a:-0} + ${a2n:-0} ))
+    # drive_astrocytes prints as "background input" -- the phase this GPU
+    # port actually touches. Never captured before this column existed, so a
+    # faster (or slower) drive_astrocytes was invisible in this table even
+    # though it was happening.
+    input_pct=$(awk '/^background input/ {print $4}' "$out")
     astro_pct=$(awk '/^update astrocytes/ {print $4}' "$out")
     neuron_pct=$(awk '/^update neurons/ {print $4}' "$out")
     deliver_pct=$(awk '/^spike delivery/ {s=$4} /^SIC gather\+deliver/ {s+=$4} /^arrival application/ {s+=$4} END {printf "%.4f", s}' "$out")
@@ -137,14 +142,17 @@ for n in $SIZES; do
         prev_us_step="-"
     fi
 
-    printf "%-10s %10s %10s %14s %10s %10s %10s %10s %14s %12s %10s\n" \
-        "$n" "${n_a:-?}" "${synapses:-?}" "${max_deg:-?}" "${astro_pct:-?}" \
+    printf "%-10s %10s %10s %14s %10s %10s %10s %10s %10s %14s %12s %10s\n" \
+        "$n" "${n_a:-?}" "${synapses:-?}" "${max_deg:-?}" "${input_pct:-?}" "${astro_pct:-?}" \
         "${neuron_pct:-?}" "${deliver_pct:-?}" "${other_pct:-?}" "${us_step:-?}" \
         "$prev_us_step" "$delta"
 
+    # input_pct appended at the end, not inserted after max_astro_deg, so the
+    # us_step lookup above (column 12, fixed) keeps working for every row
+    # written before this column existed.
     echo "${TIMESTAMP},${SLURM_JOB_ID:-local},${COMMIT},${n},${n_a:-},${synapses:-}," \
          "${max_deg:-},${astro_pct:-},${neuron_pct:-},${deliver_pct:-},${other_pct:-}," \
-         "${us_step:-},${wall_s:-}" | tr -d ' ' >> "$HISTORY"
+         "${us_step:-},${wall_s:-},${input_pct:-}" | tr -d ' ' >> "$HISTORY"
 
     cp "$out" "neuron-scaling-${n}-${SLURM_JOB_ID:-local}.out"
 done
