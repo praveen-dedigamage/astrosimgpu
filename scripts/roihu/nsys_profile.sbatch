@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=project_2020568-astrosimgpu-nsys
-#SBATCH --account=project_2020568
+#SBATCH --job-name=project_2020566-astrosimgpu-nsys
+#SBATCH --account=project_2020566
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00
 #SBATCH --nodes=1
