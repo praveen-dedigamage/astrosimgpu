@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=astrosimgpu-backends
+#SBATCH --job-name=project_2020568-astrosimgpu-backends
 #SBATCH --partition=gpumedium
 #SBATCH --time=00:30:00
 #SBATCH --nodes=1

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=astrosimgpu-offload
+#SBATCH --job-name=project_2020568-astrosimgpu-offload
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00
 #SBATCH --nodes=1

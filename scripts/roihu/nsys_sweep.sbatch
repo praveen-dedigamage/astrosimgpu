@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=astrosimgpu-nsys-sweep
+#SBATCH --job-name=project_2020568-astrosimgpu-nsys-sweep
 #SBATCH --account=project_2020568
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00

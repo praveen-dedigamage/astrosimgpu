@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=astrosimgpu-neuron-scaling
+#SBATCH --job-name=project_2020568-astrosimgpu-neuron-scaling
 #SBATCH --account=project_2020568
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00
