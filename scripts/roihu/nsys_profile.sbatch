@@ -98,7 +98,7 @@ SAMPLE_FLAGS=()
 if [[ "$CPU_SAMPLE" == "1" ]]; then
     SAMPLE_FLAGS=(--sample=cpu --backtrace=dwarf)
 fi
-OUT=${OUT:-astro_timeline}
+OUT=${OUT:-astro_timeline_${SLURM_JOB_ID:-local}}
 
 echo "config : $CONFIG ${ASTRO_FLAGS[*]} -t $SIM -p $PRE"
 echo "report : $PWD/${OUT}.nsys-rep"

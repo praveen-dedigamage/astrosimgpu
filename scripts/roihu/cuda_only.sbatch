@@ -78,11 +78,13 @@ echo
 echo "=============== regime transition ==============="
 printf "%-10s %14s %14s\n" "config" "correlation" "expected"
 
-async=$(srun --export=ALL "$BIN" --config config/use_case.json -t 60000 -o results/cuda-async \
+async=$(srun --export=ALL "$BIN" --config config/use_case.json -t 60000 \
+    -o "results/cuda-async-${SLURM_JOB_ID:-local}" \
     2>/dev/null | awk '/mean pairwise/ {print $NF}')
 printf "%-10s %14s %14s\n" "async" "${async:-FAILED}" "0.0106"
 
-burst=$(srun --export=ALL "$BIN" --config config/bursting.json -t 60000 -o results/cuda-burst \
+burst=$(srun --export=ALL "$BIN" --config config/bursting.json -t 60000 \
+    -o "results/cuda-burst-${SLURM_JOB_ID:-local}" \
     2>/dev/null | awk '/mean pairwise/ {print $NF}')
 printf "%-10s %14s %14s\n" "bursting" "${burst:-FAILED}" "0.4177"
 echo
@@ -103,7 +105,7 @@ printf "%-12s %14s %14s\n" "astrocytes" "total_s" "us/step"
 
 for n in $SIZES; do
     t=$(srun --export=ALL "$BIN" --config config/kernel_scaling.json --astrocytes "$n" \
-        -t "$SIM" -p "$PRE" -o "results/cuda-ks-$n" 2>/dev/null \
+        -t "$SIM" -p "$PRE" -o "results/cuda-ks-${n}-${SLURM_JOB_ID:-local}" 2>/dev/null \
         | awk '/update astrocytes/ {print $3}')
     [[ -z "$t" ]] && t=0
     us=$(awk -v t="$t" -v s="$STEPS" 'BEGIN{printf "%.2f", t*1e6/s}')

@@ -89,7 +89,7 @@ CONFIG=${CONFIG:-config/kernel_scaling.json}
 ASTRO=${ASTRO-1000000}
 SIM=${SIM:-2}
 PRE=${PRE:-1}
-OUT=${OUT:-astro_kernel}
+OUT=${OUT:-astro_kernel_${SLURM_JOB_ID:-local}}
 ASTRO_FLAGS=()
 if [[ -n "$ASTRO" ]]; then
     ASTRO_FLAGS=(--astrocytes "$ASTRO")

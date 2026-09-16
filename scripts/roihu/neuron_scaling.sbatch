@@ -99,7 +99,8 @@ for n in $SIZES; do
     fi
 
     out="/tmp/neuron-scaling.$$-$n.out"
-    srun --export=ALL "$BIN" --config "$cfg" -o "results/neuron-scale-${n}-cuda" > "$out" 2>&1
+    srun --export=ALL "$BIN" --config "$cfg" \
+        -o "results/neuron-scale-${n}-${SLURM_JOB_ID:-local}" > "$out" 2>&1
     status=$?
     if [[ $status -ne 0 ]]; then
         echo "FAILED (exit $status): $cfg -- see $out" >&2

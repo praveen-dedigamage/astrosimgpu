@@ -80,7 +80,7 @@ for n in $SIZES; do
         continue
     fi
 
-    out="astro_timeline_${n}"
+    out="astro_timeline_${n}_${SLURM_JOB_ID:-local}"
     echo
     echo "=============== N=$n ($cfg) ==============="
     echo "report : $PWD/${out}.nsys-rep"
