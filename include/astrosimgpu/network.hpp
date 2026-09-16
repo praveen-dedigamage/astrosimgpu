@@ -68,6 +68,27 @@ public:
     [[nodiscard]] const PhaseProfile& profile() const { return profile_; }
     [[nodiscard]] const ModelConfig& config() const { return cfg_; }
 
+    /// Read-only access to the connection tables, for inspection/
+    /// visualization (e.g. drawing a real connectivity diagram).
+    [[nodiscard]] const ConnectionSet& exc_primary() const { return exc_primary_; }
+    [[nodiscard]] const ConnectionSet& inh_primary() const { return inh_primary_; }
+    [[nodiscard]] const ConnectionSet& neuron_astro() const { return neuron_astro_; }
+    [[nodiscard]] const ConnectionSet& astro_neuron() const { return astro_neuron_; }
+
+    /// Per-astrocyte out-degree (how many neurons each one actually connects
+    /// to), for inspection/visualization -- stats() only exposes the max.
+    [[nodiscard]] vec<index_t> astro_out_degrees() const {
+        vec<index_t> degrees;
+        if (astro_neuron_.row_start.empty()) {
+            return degrees;
+        }
+        degrees.reserve(astro_neuron_.row_start.size() - 1);
+        for (std::size_t a = 0; a + 1 < astro_neuron_.row_start.size(); ++a) {
+            degrees.push_back(astro_neuron_.row_start[a + 1] - astro_neuron_.row_start[a]);
+        }
+        return degrees;
+    }
+
 private:
     void build_primary_connections(CounterRng& rng);
     void build_tripartite(index_t post_offset, index_t post_count, CounterRng& rng);

@@ -181,6 +181,8 @@ int main(int argc, char** argv) {
     double pre_time_override = -1.0;
     long long astro_override = -1;
     int thread_override = 0;
+    std::string dump_astro_degrees_path;
+    std::string dump_edges_path;
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -209,6 +211,10 @@ int main(int argc, char** argv) {
             thread_override = std::stoi(next("--threads"));
         } else if (arg == "--no-analysis") {
             run_analysis = false;
+        } else if (arg == "--dump-astro-degrees") {
+            dump_astro_degrees_path = next("--dump-astro-degrees");
+        } else if (arg == "--dump-edges") {
+            dump_edges_path = next("--dump-edges");
         } else {
             std::cerr << "unknown option: " << arg << "\n\n";
             print_usage(argv[0]);
@@ -257,6 +263,42 @@ int main(int argc, char** argv) {
                   << "  " << s.n_primary_exc + s.n_primary_inh << " neuron-neuron synapses, "
                   << s.n_neuron_to_astro << " neuron-astrocyte, " << s.n_astro_to_neuron
                   << " astrocyte-neuron\n";
+
+        if (!dump_astro_degrees_path.empty()) {
+            std::ofstream out(dump_astro_degrees_path);
+            if (!out) {
+                throw std::runtime_error("cannot open " + dump_astro_degrees_path +
+                                          " for --dump-astro-degrees");
+            }
+            out << "astrocyte,out_degree\n";
+            const vec<index_t> degrees = net.astro_out_degrees();
+            for (std::size_t a = 0; a < degrees.size(); ++a) {
+                out << a << ',' << degrees[a] << '\n';
+            }
+            std::cout << "Wrote per-astrocyte out-degree to " << dump_astro_degrees_path << "\n";
+        }
+
+        if (!dump_edges_path.empty()) {
+            std::ofstream out(dump_edges_path);
+            if (!out) {
+                throw std::runtime_error("cannot open " + dump_edges_path + " for --dump-edges");
+            }
+            out << "type,source,target\n";
+            auto dump_set = [&](const char* type, const ConnectionSet& set, long long source_offset,
+                                 const char* source_prefix, const char* target_prefix) {
+                for (std::size_t src = 0; src + 1 < set.row_start.size(); ++src) {
+                    for (index_t k = set.row_start[src]; k < set.row_start[src + 1]; ++k) {
+                        out << type << ',' << source_prefix << (static_cast<long long>(src) + source_offset)
+                            << ',' << target_prefix << set.target[k] << '\n';
+                    }
+                }
+            };
+            dump_set("exc_primary", net.exc_primary(), 0, "", "");
+            dump_set("inh_primary", net.inh_primary(), s.n_exc, "", "");
+            dump_set("n2a", net.neuron_astro(), 0, "", "A");
+            dump_set("a2n", net.astro_neuron(), 0, "A", "");
+            std::cout << "Wrote edge list to " << dump_edges_path << "\n";
+        }
 
         Recorder recorder(cfg.output_dir, cfg.record_spikes, cfg.record_astro, cfg.record_neuron);
 

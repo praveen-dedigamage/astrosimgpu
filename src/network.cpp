@@ -360,31 +360,41 @@ real Network::stp_weight(ConnectionSet &set, index_t synapse,real t_now) const {
 void Network::deliver_spikes(const vec<Spike> &spikes, std::int64_t step) {
   const real t_now = static_cast<real>(step) * cfg_.time.dt;
   const index_t n_exc = cfg_.N.N_exc;
+  const auto n_spikes = static_cast<std::int64_t>(spikes.size());
 
-  for (const Spike &s : spikes) {
+  // Each spike's synapse range is exclusive to its source, so stp_weight's
+  // per-synapse state is race-free across threads. Different sources can
+  // share a target, though, so the ring writes below need atomics.
+  #pragma omp parallel for schedule(static)
+  for (std::int64_t idx = 0; idx < n_spikes; ++idx) {
+    const Spike &s = spikes[idx];
     if (s.source < n_exc) {
       const index_t src = s.source;
       for (index_t k = exc_primary_.row_start[src];
            k < exc_primary_.row_start[src + 1]; ++k) {
         const int slot = static_cast<int>((step + exc_primary_.delay_steps[k]) %
                                           ring_slots_);
-        ring_exc_[slot][exc_primary_.target[k]] +=
-            stp_weight(exc_primary_, k, t_now);
+        const real w = stp_weight(exc_primary_, k, t_now);
+        #pragma omp atomic update
+        ring_exc_[slot][exc_primary_.target[k]] += w;
       }
       for (index_t k = neuron_astro_.row_start[src];
            k < neuron_astro_.row_start[src + 1]; ++k) {
         const int slot = static_cast<int>(
             (step + neuron_astro_.delay_steps[k]) % ring_slots_);
-        ring_astro_[slot][neuron_astro_.target[k]] +=
-            stp_weight(neuron_astro_, k, t_now);
+        const real w = stp_weight(neuron_astro_, k, t_now);
+        #pragma omp atomic update
+        ring_astro_[slot][neuron_astro_.target[k]] += w;
       }
     } else {
       const index_t src = s.source - n_exc;
       for (index_t k = inh_primary_.row_start[src];
            k < inh_primary_.row_start[src + 1]; ++k) {
         const int slot = static_cast<int>((step + inh_primary_.delay_steps[k]) % ring_slots_);
+        const real w = stp_weight(inh_primary_, k, t_now);
         // Weights are negative; the ring stores magnitudes.
-        ring_inh_[slot][inh_primary_.target[k]] -= stp_weight(inh_primary_, k, t_now);
+        #pragma omp atomic update
+        ring_inh_[slot][inh_primary_.target[k]] -= w;
       }
     }
   }
