@@ -73,6 +73,24 @@ if [[ "$CPU_SAMPLE" == "1" ]]; then
     SAMPLE_FLAGS=(--sample=cpu --backtrace=dwarf)
 fi
 
+# Kept separate from results/sweep_history.csv (neuron_scaling.sbatch's
+# history): --sample=cpu adds real overhead to whichever phase happens to
+# run while it interrupts threads, so a profiled run's us/step is not
+# comparable to an unprofiled one -- mixing them into one file would
+# reproduce the exact OMP_WAIT_POLICY confusion from earlier, just with a
+# different cause. Compare nsys-sweep runs only against other nsys-sweep
+# runs, and the plain sweep only against itself.
+HISTORY="${HISTORY:-results/nsys_sweep_history.csv}"
+HISTORY_COLS="timestamp,jobid,commit,neurons,N_A,synapses,max_astro_deg,astro_pct,neuron_pct,deliver_pct,other_pct,us_step,wall_s"
+mkdir -p "$(dirname "$HISTORY")"
+if [[ ! -f "$HISTORY" ]]; then
+    echo "$HISTORY_COLS" > "$HISTORY"
+fi
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+SUMMARY_ROWS=()
+
 for n in $SIZES; do
     cfg="config/neuron_scale_${n}.json"
     if [[ ! -f "$cfg" ]]; then
@@ -87,6 +105,12 @@ for n in $SIZES; do
 
     mkdir -p "/tmp/nsys.$$.${n}"
 
+    # Captured to a file (rather than streaming straight to stdout) so the
+    # summary table below can be built from it -- still printed in full via
+    # the cat right after, so nothing that used to show up in this job's
+    # log is lost.
+    tmp_out="/tmp/nsys-sweep.$$.${n}.out"
+
     # Same invocation as nsys_profile.sbatch: srun --export=ALL wraps the
     # whole nsys call (CSC's documented pattern), -t adds nvtx to the
     # default trace set so the Network::run phase ranges show up, and
@@ -96,15 +120,71 @@ for n in $SIZES; do
         --stats=true --force-overwrite=true \
         "${SAMPLE_FLAGS[@]}" \
         "$BIN" --config "$cfg" \
-        -t "$SIM" -p "$PRE" -o "/tmp/nsys.$$.${n}"
+        -t "$SIM" -p "$PRE" -o "/tmp/nsys.$$.${n}" > "$tmp_out" 2>&1
+    cat "$tmp_out"
 
     PYTHONNOUSERSITE=1 nsys export --type sqlite --force-overwrite=true \
         -o "${out}.sqlite" "${out}.nsys-rep" || \
         echo "sqlite export failed for N=$n -- the .nsys-rep file is still usable in the GUI."
+
+    # Same extraction as neuron_scaling.sbatch -- the target binary's own
+    # "State propagation by phase" printout is still there ahead of nsys's
+    # own --stats=true tables, just inside tmp_out instead of streamed
+    # directly.
+    n_a=$(awk '/^astrocytes / {print $2}' "$tmp_out")
+    max_deg=$(awk '/max astro out-degree/ {print $4}' "$tmp_out")
+    n2a=$(awk '/neuron -> astrocyte/ {print $4}' "$tmp_out")
+    a2n=$(awk '/astrocyte -> neuron/ {print $4}' "$tmp_out")
+    n_primary_exc=$(awk '/exc -> neuron synapses/ {print $5}' "$tmp_out")
+    n_primary_inh=$(awk '/inh -> neuron synapses/ {print $5}' "$tmp_out")
+    synapses=$(( ${n_primary_exc:-0} + ${n_primary_inh:-0} + ${n2a:-0} + ${a2n:-0} ))
+    astro_pct=$(awk '/^update astrocytes/ {print $4}' "$tmp_out")
+    neuron_pct=$(awk '/^update neurons/ {print $4}' "$tmp_out")
+    deliver_pct=$(awk '/^spike delivery/ {s=$4} /^SIC gather\+deliver/ {s+=$4} /^arrival application/ {s+=$4} END {printf "%.4f", s}' "$tmp_out")
+    other_pct=$(awk '/^other \(I\/O, loop\)/ {print $5}' "$tmp_out")
+    total_s=$(awk '/^total / {print $2}' "$tmp_out")
+    wall_s=$(awk '/wall clock/ {print $3}' "$tmp_out")
+    recorded_ms=$(awk '/^recorded / {print $2}' "$tmp_out")
+    dt=$(awk '/^dt / {print $2}' "$tmp_out")
+    steps=$(awk -v r="$recorded_ms" -v d="$dt" 'BEGIN{printf "%d", r/d}')
+    us_step=$(awk -v t="$total_s" -v s="$steps" 'BEGIN{ if (s>0) printf "%.2f", t*1e6/s; else print "n/a" }')
+
+    prev_us_step=$(awk -F, -v n="$n" 'NR>1 && $4==n {prev=$12} END{if (prev!="") print prev}' "$HISTORY")
+    if [[ -n "$prev_us_step" && "$prev_us_step" != "n/a" && "$us_step" != "n/a" ]]; then
+        delta=$(awk -v p="$prev_us_step" -v c="$us_step" 'BEGIN{ printf "%+.1f%%", (p-c)/p*100 }')
+    else
+        delta="(none)"
+        prev_us_step="-"
+    fi
+
+    SUMMARY_ROWS+=("$(printf "%-10s %10s %10s %14s %10s %10s %10s %10s %14s %12s %10s" \
+        "$n" "${n_a:-?}" "${synapses:-?}" "${max_deg:-?}" "${astro_pct:-?}" \
+        "${neuron_pct:-?}" "${deliver_pct:-?}" "${other_pct:-?}" "${us_step:-?}" \
+        "$prev_us_step" "$delta")")
+
+    echo "${TIMESTAMP},${SLURM_JOB_ID:-local},${COMMIT},${n},${n_a:-},${synapses:-}," \
+         "${max_deg:-},${astro_pct:-},${neuron_pct:-},${deliver_pct:-},${other_pct:-}," \
+         "${us_step:-},${wall_s:-}" | tr -d ' ' >> "$HISTORY"
 done
 
 echo
+echo "=============== summary (all sizes, this job) ==============="
+echo "history: $HISTORY (commit $COMMIT)"
+printf "%-10s %10s %10s %14s %10s %10s %10s %10s %14s %12s %10s\n" \
+    "neurons" "N_A" "synapses" "max_astro_deg" "astro%" "neuron%" "deliver%" "other%" "us/step" "prev_us/step" "delta"
+printf '%.0s-' {1..135}; echo
+for row in "${SUMMARY_ROWS[@]}"; do
+    echo "$row"
+done
+echo
+echo "delta is us/step change vs the most recent PRIOR nsys-sweep run of the"
+echo "same size (positive = faster, negative = slower) -- compares only"
+echo "against other profiled runs, never against results/sweep_history.csv's"
+echo "unprofiled numbers, since --sample=cpu overhead makes the two"
+echo "not directly comparable."
+echo
 echo "=============== done ==============="
-echo "Wrote one astro_timeline_<N>.nsys-rep + .sqlite pair per size in $PWD."
+echo "Wrote one astro_timeline_<N>_<jobid>.nsys-rep + .sqlite pair per size in $PWD."
 echo "Copy them off Roihu with scp/rsync, e.g.:"
-echo "  scp roihu:$PWD/astro_timeline_*.nsys-rep roihu:$PWD/astro_timeline_*.sqlite ."
+echo "  scp roihu:$PWD/astro_timeline_*_${SLURM_JOB_ID:-local}.nsys-rep ."
+echo "  scp roihu:$PWD/astro_timeline_*_${SLURM_JOB_ID:-local}.sqlite ."
