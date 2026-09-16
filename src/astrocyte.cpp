@@ -215,6 +215,20 @@ void AstrocytePopulation::device_pull_calcium() {
 #endif
 }
 
+void AstrocytePopulation::drive_device(std::int64_t step, std::uint64_t seed, real lambda,
+                                        real weight) {
+#if defined(ASTROSIMGPU_CUDA)
+    if (cuda_ != nullptr) {
+        cuda_astro_drive_input(cuda_, seed, step, lambda, weight);
+    }
+#else
+    (void)step;
+    (void)seed;
+    (void)lambda;
+    (void)weight;
+#endif
+}
+
 AstroConstants AstrocytePopulation::constants() const {
     AstroConstants c{};
     c.Kd_IP3_1 = p_.Kd_IP3_1;

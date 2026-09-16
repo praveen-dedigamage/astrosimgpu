@@ -57,6 +57,27 @@ __global__ void astro_update_kernel(index_t n, AstroConstants c, real h_step, in
     ip3_input[i] = 0.0;
 }
 
+// One astrocyte per thread. Reproduces Network::drive_astrocytes' host loop
+// bit-for-bit -- same (seed, stream) as CounterRng(seed ^ salt, step*1000003
+// + a).poisson(lambda) -- but generated and added directly into the
+// device-resident buffer instead of a host array that then has to be
+// transferred across. Adds rather than overwrites: device_push_input's
+// contribution (SIC input routed to astrocytes, from apply_arrivals) must
+// already be in ip3_input.
+__global__ void astro_drive_kernel(index_t n, std::uint64_t seed, std::int64_t step, real lambda,
+                                   real weight, real* __restrict__ ip3_input) {
+    const index_t a = blockIdx.x * blockDim.x + threadIdx.x;
+    if (a >= n) {
+        return;
+    }
+    const std::uint64_t stream =
+        static_cast<std::uint64_t>(step) * 1000003ULL + static_cast<std::uint64_t>(a);
+    const int events = rng_poisson(seed ^ 0xC2B2AE3D27D4EB4FULL, stream, lambda);
+    if (events > 0) {
+        ip3_input[a] += weight * static_cast<real>(events);
+    }
+}
+
 }  // namespace
 
 struct CudaAstro {
@@ -151,6 +172,18 @@ void cuda_astro_update(CudaAstro* s, const AstroConstants& c, real h_step, int s
                                         shared_noise, noise_seed, noise_index, s->Ca, s->IP3,
                                         s->h, s->ip3_input, s->Ca_tot, s->IP3_0, s->tau_IP3,
                                         s->delta_IP3);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+void cuda_astro_drive_input(CudaAstro* s, std::uint64_t seed, std::int64_t step, real lambda,
+                            real weight) {
+    if (s == nullptr || s->n == 0) {
+        return;
+    }
+    // Same block size as astro_update_kernel, for the same reason.
+    constexpr int block = 128;
+    const int grid = static_cast<int>((s->n + block - 1) / block);
+    astro_drive_kernel<<<grid, block>>>(s->n, seed, step, lambda, weight, s->ip3_input);
     CUDA_CHECK(cudaGetLastError());
 }
 

@@ -31,6 +31,14 @@ public:
     void device_push_input();
     void device_pull_calcium();
 
+    // Background Poisson drive, generated and added directly into the
+    // device-resident input buffer -- the CUDA-backend counterpart to
+    // Network::drive_astrocytes' host loop. No-op outside a CUDA build (the
+    // host loop is used there instead). `device_push_input` must be called
+    // first each step, since this adds on top of whatever is already there
+    // (the SIC-to-astrocyte contribution from apply_arrivals).
+    void drive_device(std::int64_t step, std::uint64_t seed, real lambda, real weight);
+
     // The kernel zeroes its own copy of the input, but nothing carries that
     // back once the arrays are resident, so the host copy needs clearing or it
     // accumulates. Only cells with an incoming connection can be non-zero.

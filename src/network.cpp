@@ -529,9 +529,20 @@ void Network::run(Recorder &recorder) {
     }
 
     // Per-cell work with no communication, so timed apart from delivery.
+    // CUDA: generated directly on the device (Stage 2 of docs/gpu-port.md),
+    // so device_push_input has to land first -- this adds to it rather than
+    // overwriting. Every other backend keeps the host loop, unchanged.
     t = clock::now();
     ASTROSIMGPU_NVTX_PUSH("drive_astrocytes");
+#if defined(ASTROSIMGPU_CUDA)
+    astro_.device_push_input();
+    if (cfg_.input_astro.poiss_rate > 0.0) {
+      const real lambda = cfg_.input_astro.poiss_rate * cfg_.time.dt * 1e-3;
+      astro_.drive_device(step, cfg_.seed, lambda, cfg_.input_astro.poiss_weight);
+    }
+#else
     drive_astrocytes(step);
+#endif
     ASTROSIMGPU_NVTX_POP();
     if (measured) {
       profile_.input_gen += tick(t);
@@ -539,7 +550,9 @@ void Network::run(Recorder &recorder) {
 
     t = clock::now();
     ASTROSIMGPU_NVTX_PUSH("update_astro");
+#if !defined(ASTROSIMGPU_CUDA)
     astro_.device_push_input();
+#endif
     astro_.update(cfg_.time, step, cfg_.seed);
     // deliver_sic reads calcium on the host.
     astro_.device_pull_calcium();

@@ -49,6 +49,32 @@ ASTROSIMGPU_RNG_FN real rng_normal(std::uint64_t seed, std::uint64_t stream) {
            std::cos(6.283185307179586476925286766559 * u2);
 }
 
+// Knuth, drawing counters 2, 3, 4, ... in order -- mirrors
+// CounterRng::poisson() exactly (each CounterRng::uniform() call there is
+// rng_uniform at the next counter), so a device kernel calling this
+// reproduces the host loop's draws bit-for-bit for the same (seed, stream).
+// Rates here give lambda well under 1 per step, so the loop almost always
+// exits on the first test.
+ASTROSIMGPU_RNG_FN int rng_poisson(std::uint64_t seed, std::uint64_t stream, real lambda) {
+    if (lambda <= 0.0) {
+        return 0;
+    }
+    if (lambda > 30.0) {
+        // Normal approximation; only reached for pathological input rates.
+        const real v = lambda + std::sqrt(lambda) * rng_normal(seed, stream);
+        return v < 0.0 ? 0 : static_cast<int>(v + 0.5);
+    }
+    const real limit = std::exp(-lambda);
+    std::uint64_t counter = 0;
+    real product = rng_uniform(seed, stream, counter++);
+    int count = 0;
+    while (product > limit) {
+        ++count;
+        product *= rng_uniform(seed, stream, counter++);
+    }
+    return count;
+}
+
 #ifdef ASTROSIMGPU_OFFLOAD
 #pragma omp end declare target
 #endif

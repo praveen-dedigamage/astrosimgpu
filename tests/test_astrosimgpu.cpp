@@ -126,6 +126,23 @@ void test_rng() {
         free_matches = free_matches && (ref2.normal() == rng_normal(4242, stream));
     }
     check(free_matches, "free rng functions match CounterRng exactly");
+
+    // Same reasoning as above, for rng_poisson: astro_drive_kernel (CUDA)
+    // calls this instead of the host drive_astrocytes loop's
+    // CounterRng(...).poisson(lambda), and the two have to agree exactly for
+    // the device path to be the same computation, not a different one that
+    // happens to look similar. Covers both branches: lambda <= 30 (the
+    // rejection loop, what every real input rate in this codebase hits) and
+    // lambda > 30 (the normal approximation, reachable only by a
+    // pathological config).
+    bool poisson_matches = true;
+    for (std::uint64_t stream = 0; stream < 200; ++stream) {
+        CounterRng ref3(777, stream);
+        poisson_matches = poisson_matches && (ref3.poisson(0.27) == rng_poisson(777, stream, 0.27));
+        CounterRng ref4(777, stream);
+        poisson_matches = poisson_matches && (ref4.poisson(45.0) == rng_poisson(777, stream, 45.0));
+    }
+    check(poisson_matches, "free rng_poisson matches CounterRng::poisson exactly");
 }
 
 void test_astrocyte_rest() {

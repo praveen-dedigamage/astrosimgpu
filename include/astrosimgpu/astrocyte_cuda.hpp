@@ -22,6 +22,14 @@ void cuda_astro_push_input(CudaAstro* state, const real* ip3_input);
 
 void cuda_astro_pull_calcium(CudaAstro* state, real* Ca);
 
+// Generates this step's background Poisson drive on the device and adds it
+// into the resident input buffer (does not overwrite -- device_push_input's
+// contribution must already be there). One thread per astrocyte, same
+// (seed, step, cell) -> stream mapping as the host drive_astrocytes loop, so
+// results match exactly (see rng_poisson in rng.hpp).
+void cuda_astro_drive_input(CudaAstro* state, std::uint64_t seed, std::int64_t step, real lambda,
+                            real weight);
+
 void cuda_astro_update(CudaAstro* state, const AstroConstants& c, real h_step, int substeps,
                        real noise_std, bool independent_noise, real shared_noise,
                        std::uint64_t noise_seed, std::uint64_t noise_index);
