@@ -4,7 +4,10 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 #include "astrosimgpu/analysis.hpp"
@@ -13,6 +16,7 @@
 #include "astrosimgpu/json.hpp"
 #include "astrosimgpu/network.hpp"
 #include "astrosimgpu/neuron.hpp"
+#include "astrosimgpu/recorder.hpp"
 #include "astrosimgpu/rng.hpp"
 
 using namespace astrosimgpu;
@@ -471,6 +475,84 @@ void test_astro_out_degree_cap() {
     }
 }
 
+// Network::build() is checked for reproducibility above (test_network_build);
+// this checks Network::run() itself, which build() never touches. Several
+// per-step phases run under #pragma omp parallel for (drive_astrocytes,
+// apply_arrivals) -- a race there would not reliably crash, it would show up
+// as the same seed producing a different result from run to run. Comparing
+// the full recorded spike sequence (not just a count) across two runs is the
+// direct way to look for that.
+void test_run_reproducibility() {
+    ModelConfig cfg;
+    cfg.N = {20, 80, 20};
+    cfg.time.dt = 0.1;
+    cfg.time.substeps = 1;
+    cfg.time.pre_sim_time = 0.0;
+    cfg.time.sim_time = 50.0;
+    cfg.conn.p_primary = 0.2;
+    cfg.conn.p_third_if_primary = 0.3;
+    cfg.conn.pool_size = 3;
+    cfg.conn.pool_type = PoolType::Random;
+    cfg.seed = 42;
+    // A constant suprathreshold current, not just Poisson luck, so spiking
+    // is guaranteed rather than probable: g_L*(V_th-E_L) is the leak alone
+    // at threshold (~606 pA at the default neuron_exc params), so 900 pA
+    // reliably drives regular tonic firing regardless of input timing.
+    // Without real activity, an empty spike sequence would trivially
+    // "match" between the two runs regardless of whether run() is actually
+    // deterministic, and the test would prove nothing.
+    cfg.neuron_exc.I_e = 900.0;
+    cfg.neuron_inh.I_e = 900.0;
+    // Poisson rates on top, so drive_astrocytes (astro) and the
+    // network's own recurrent delivery (exc/inh) both still get exercised,
+    // not just the tonic-current path.
+    cfg.input_exc.poiss_rate = 2700.0;
+    cfg.input_exc.poiss_weight = 1.0;
+    cfg.input_inh.poiss_rate = 2500.0;
+    cfg.input_inh.poiss_weight = 1.0;
+    cfg.input_astro.poiss_rate = 3.0;
+    cfg.input_astro.poiss_weight = 1.0;
+
+    const std::string base =
+        (std::filesystem::temp_directory_path() / "astrosimgpu_repro_test").string();
+    const std::string dir_a = base + "_a";
+    const std::string dir_b = base + "_b";
+
+    auto run_once = [&](const std::string& out_dir) {
+        Network net(cfg);
+        net.build();
+        Recorder recorder(out_dir, /*spikes=*/true, /*astro=*/false, /*neuron=*/false);
+        net.run(recorder);
+        return recorder.spike_count();
+    };
+
+    const std::size_t count_a = run_once(dir_a);
+    const std::size_t count_b = run_once(dir_b);
+
+    check(count_a > 0,
+          "reproducibility check config actually produces spikes (otherwise "
+          "this test proves nothing)");
+    check(count_a == count_b, "same seed produces the same spike count on repeated runs");
+
+    auto read_file = [](const std::string& path) {
+        std::ifstream f(path);
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        return ss.str();
+    };
+    const std::string spikes_a = read_file(dir_a + "/spikes.csv");
+    const std::string spikes_b = read_file(dir_b + "/spikes.csv");
+    check(!spikes_a.empty(), "spikes.csv was actually written");
+    check(spikes_a == spikes_b,
+          "same seed produces an identical spike sequence (time and neuron) on "
+          "repeated runs -- catches a race in the parallel delivery/drive loops "
+          "that a count-only check could miss");
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir_a, ec);
+    std::filesystem::remove_all(dir_b, ec);
+}
+
 }  // namespace
 
 int main() {
@@ -490,6 +572,7 @@ int main() {
         {"analysis", test_analysis},
         {"network build", test_network_build},
         {"astro out-degree cap", test_astro_out_degree_cap},
+        {"run reproducibility", test_run_reproducibility},
     };
 
     for (const Case& c : cases) {
