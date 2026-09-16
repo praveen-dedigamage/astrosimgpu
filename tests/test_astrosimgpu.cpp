@@ -19,6 +19,10 @@
 #include "astrosimgpu/recorder.hpp"
 #include "astrosimgpu/rng.hpp"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 using namespace astrosimgpu;
 
 namespace {
@@ -553,6 +557,87 @@ void test_run_reproducibility() {
     std::filesystem::remove_all(dir_b, ec);
 }
 
+// Complements test_run_reproducibility: that test checks the same thread
+// count is deterministic run to run; this checks that thread count itself
+// does not change the result -- the direct test for "does the OMP-parallel
+// code compute the same thing the original serial code did", not just "is
+// the current code self-consistent". drive_astrocytes and apply_arrivals
+// write only to their own loop index with no cross-iteration dependency or
+// shared accumulator, so the result should be bit-identical for any thread
+// count; this is what actually confirms that instead of assuming it from
+// the code's shape. omp_set_num_threads affects every #pragma omp region
+// encountered afterward, including neurons_.update()'s own parallel loop,
+// so this incidentally covers that too, not just this session's two changes.
+void test_thread_count_invariance() {
+#ifndef _OPENMP
+    // No OpenMP in this build: the pragmas are no-ops, so thread count
+    // cannot possibly matter here. Nothing to check.
+    return;
+#else
+    ModelConfig cfg;
+    cfg.N = {20, 80, 20};
+    cfg.time.dt = 0.1;
+    cfg.time.substeps = 1;
+    cfg.time.pre_sim_time = 0.0;
+    cfg.time.sim_time = 50.0;
+    cfg.conn.p_primary = 0.2;
+    cfg.conn.p_third_if_primary = 0.3;
+    cfg.conn.pool_size = 3;
+    cfg.conn.pool_type = PoolType::Random;
+    cfg.seed = 42;
+    cfg.neuron_exc.I_e = 900.0;
+    cfg.neuron_inh.I_e = 900.0;
+    cfg.input_exc.poiss_rate = 2700.0;
+    cfg.input_exc.poiss_weight = 1.0;
+    cfg.input_inh.poiss_rate = 2500.0;
+    cfg.input_inh.poiss_weight = 1.0;
+    cfg.input_astro.poiss_rate = 3.0;
+    cfg.input_astro.poiss_weight = 1.0;
+
+    const std::string base =
+        (std::filesystem::temp_directory_path() / "astrosimgpu_thread_test").string();
+    const std::string dir_1 = base + "_1";
+    const std::string dir_n = base + "_n";
+    const int max_threads = omp_get_max_threads();
+
+    auto run_with_threads = [&](const std::string& out_dir, int threads) {
+        omp_set_num_threads(threads);
+        Network net(cfg);
+        net.build();
+        Recorder recorder(out_dir, /*spikes=*/true, /*astro=*/false, /*neuron=*/false);
+        net.run(recorder);
+        return recorder.spike_count();
+    };
+
+    const std::size_t count_1 = run_with_threads(dir_1, 1);
+    const std::size_t count_n = run_with_threads(dir_n, max_threads);
+    omp_set_num_threads(max_threads);  // restore, so later tests are unaffected
+
+    check(max_threads > 1, "thread-count test actually varies thread count (max_threads=" +
+                               std::to_string(max_threads) + ") -- otherwise it proves nothing");
+    check(count_1 > 0, "thread-count check config actually produces spikes");
+    check(count_1 == count_n, "1 thread and " + std::to_string(max_threads) +
+                                   " threads produce the same spike count for the same seed");
+
+    auto read_file = [](const std::string& path) {
+        std::ifstream f(path);
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        return ss.str();
+    };
+    const std::string spikes_1 = read_file(dir_1 + "/spikes.csv");
+    const std::string spikes_n = read_file(dir_n + "/spikes.csv");
+    check(spikes_1 == spikes_n,
+          "1 thread and " + std::to_string(max_threads) +
+              " threads produce an identical spike sequence -- confirms the parallel "
+              "loops compute the same thing the original serial code did");
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir_1, ec);
+    std::filesystem::remove_all(dir_n, ec);
+#endif
+}
+
 }  // namespace
 
 int main() {
@@ -573,6 +658,7 @@ int main() {
         {"network build", test_network_build},
         {"astro out-degree cap", test_astro_out_degree_cap},
         {"run reproducibility", test_run_reproducibility},
+        {"thread count invariance", test_thread_count_invariance},
     };
 
     for (const Case& c : cases) {
