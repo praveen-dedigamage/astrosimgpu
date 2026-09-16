@@ -407,15 +407,22 @@ void Network::deliver_sic(std::int64_t step) {
   // value held indefinitely.
   ring_sic_pending_[(step + sic_delay_steps_) % ring_slots_] = 1;
 
-  // Only astrocytes with an outgoing connection can contribute.
-  for (const index_t a : sic_sources_) {
+  // Only astrocytes with an outgoing connection can contribute. Each source
+  // owns an exclusive synapse range (no plasticity state here to race on,
+  // unlike deliver_spikes), so only the ring write below needs an atomic.
+  const auto n_sources = static_cast<std::int64_t>(sic_sources_.size());
+  #pragma omp parallel for schedule(static)
+  for (std::int64_t idx = 0; idx < n_sources; ++idx) {
+    const index_t a = sic_sources_[idx];
     const real factor = astro_.sic_factor(a);
     if (factor == 0.0) {
       continue;
     }
     for (index_t k = astro_neuron_.row_start[a]; k < astro_neuron_.row_start[a + 1]; ++k) {
       const int slot = static_cast<int>((step + astro_neuron_.delay_steps[k]) % ring_slots_);
-      ring_sic_[slot][astro_neuron_.target[k]] += astro_neuron_.weight[k] * factor;
+      const real contribution = astro_neuron_.weight[k] * factor;
+      #pragma omp atomic update
+      ring_sic_[slot][astro_neuron_.target[k]] += contribution;
     }
   }
 }
