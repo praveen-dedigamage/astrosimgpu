@@ -456,6 +456,7 @@ void Network::drive_astrocytes(std::int64_t step) {
   }
   const real lambda = rate * cfg_.time.dt * 1e-3;
   const index_t n_astro = astro_.size();
+  #pragma omp parallel for
   for (index_t a = 0; a < n_astro; ++a) {
     CounterRng r(cfg_.seed ^ 0xC2B2AE3D27D4EB4FULL,
                  static_cast<std::uint64_t>(step) * 1000003ULL + a);
