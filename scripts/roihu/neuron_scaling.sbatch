@@ -72,9 +72,24 @@ echo
 
 SIZES="${SIZES:-500 1000 2000 5000 10000 100000 1000000 10000000}"
 
-printf "%-10s %10s %10s %14s %10s %10s %10s %10s %14s %16s\n" \
-    "neurons" "N_A" "synapses" "max_astro_deg" "astro%" "neuron%" "deliver%" "other%" "us/step" "wall_s"
-printf '%.0s-' {1..120}; echo
+# Every run appends to this CSV, tagged with the git commit that produced it,
+# so "did this change actually help" is a lookup instead of a manual diff
+# between two job outputs. HISTORY_COLS documents the column order used by
+# both the writer below and the lookup that reads it back.
+HISTORY="${HISTORY:-results/sweep_history.csv}"
+HISTORY_COLS="timestamp,jobid,commit,neurons,N_A,synapses,max_astro_deg,astro_pct,neuron_pct,deliver_pct,other_pct,us_step,wall_s"
+mkdir -p "$(dirname "$HISTORY")"
+if [[ ! -f "$HISTORY" ]]; then
+    echo "$HISTORY_COLS" > "$HISTORY"
+fi
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+echo "history: $HISTORY (commit $COMMIT)"
+echo
+
+printf "%-10s %10s %10s %14s %10s %10s %10s %10s %14s %12s %10s\n" \
+    "neurons" "N_A" "synapses" "max_astro_deg" "astro%" "neuron%" "deliver%" "other%" "us/step" "prev_us/step" "delta"
+printf '%.0s-' {1..135}; echo
 
 for n in $SIZES; do
     cfg="config/neuron_scale_${n}.json"
@@ -110,13 +125,32 @@ for n in $SIZES; do
     steps=$(awk -v r="$recorded_ms" -v d="$dt" 'BEGIN{printf "%d", r/d}')
     us_step=$(awk -v t="$total_s" -v s="$steps" 'BEGIN{ if (s>0) printf "%.2f", t*1e6/s; else print "n/a" }')
 
-    printf "%-10s %10s %10s %14s %10s %10s %10s %10s %14s %16s\n" \
+    # Most recent PRIOR row for this exact size, before this run's own row is
+    # appended -- column 12 is us_step, column 4 is neurons, per HISTORY_COLS.
+    prev_us_step=$(awk -F, -v n="$n" 'NR>1 && $4==n {prev=$12} END{if (prev!="") print prev}' "$HISTORY")
+    if [[ -n "$prev_us_step" && "$prev_us_step" != "n/a" && "$us_step" != "n/a" ]]; then
+        delta=$(awk -v p="$prev_us_step" -v c="$us_step" \
+            'BEGIN{ printf "%+.1f%%", (p-c)/p*100 }')
+    else
+        delta="(none)"
+        prev_us_step="-"
+    fi
+
+    printf "%-10s %10s %10s %14s %10s %10s %10s %10s %14s %12s %10s\n" \
         "$n" "${n_a:-?}" "${synapses:-?}" "${max_deg:-?}" "${astro_pct:-?}" \
-        "${neuron_pct:-?}" "${deliver_pct:-?}" "${other_pct:-?}" "${us_step:-?}" "${wall_s:-?}"
+        "${neuron_pct:-?}" "${deliver_pct:-?}" "${other_pct:-?}" "${us_step:-?}" \
+        "$prev_us_step" "$delta"
+
+    echo "${TIMESTAMP},${SLURM_JOB_ID:-local},${COMMIT},${n},${n_a:-},${synapses:-}," \
+         "${max_deg:-},${astro_pct:-},${neuron_pct:-},${deliver_pct:-},${other_pct:-}," \
+         "${us_step:-},${wall_s:-}" | tr -d ' ' >> "$HISTORY"
 
     cp "$out" "neuron-scaling-${n}-${SLURM_JOB_ID:-local}.out"
 done
 
 echo
+echo "delta is us/step change vs the most recent PRIOR run of the same size in"
+echo "$HISTORY (positive = faster, negative = slower); '(none)' means no prior"
+echo "entry exists yet for that size."
 echo "Per-config full output saved as neuron-scaling-<n>-<jobid>.out"
 echo "Configs regenerated with: python3 scripts/roihu/gen_neuron_scaling_configs.py"
