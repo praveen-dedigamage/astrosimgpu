@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=AstrosimGPU-neuron-scaling
-#SBATCH --account=project_2020568
+#SBATCH --account=project_2020566
 #SBATCH --partition=gputest
 #SBATCH --time=00:15:00
 #SBATCH --nodes=1
