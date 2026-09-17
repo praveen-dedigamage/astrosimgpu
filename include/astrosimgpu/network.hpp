@@ -9,15 +9,6 @@
 
 namespace astrosimgpu {
 
-// One spike's contribution to one ring slot, staged in a thread-private
-// buffer instead of applied with an atomic -- see Network::deliver_spikes
-// for why.
-struct RingDelta {
-    int slot;
-    index_t target;
-    real value;
-};
-
 // Compressed row storage, grouped by source: delivering one cell's output
 // walks a contiguous run. STP state, when enabled, is parallel to `target`.
 struct ConnectionSet {
@@ -140,12 +131,6 @@ private:
     vec<index_t> astro_input_sinks_;  // are the target of some neuron
 
     vec<Spike> spike_buffer_;
-
-    // Thread-private staging for deliver_spikes/deliver_sic, indexed
-    // [thread][k]. Kept as members (cleared, not freed, each call) so
-    // steady-state capacity is reached after the first few steps instead of
-    // reallocating every time.
-    vec<vec<RingDelta>> exc_deltas_, astro_deltas_, inh_deltas_, sic_deltas_;
 };
 
 }  // namespace astrosimgpu

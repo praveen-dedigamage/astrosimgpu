@@ -7,10 +7,6 @@
 #include <sstream>
 #include <unordered_set>
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
 // Labels the phases below on the nsys timeline. Header-only in NVTX v3 --
 // nothing to link -- so this only needs the include path, wired in
 // CMakeLists.txt for the CUDA build. A no-op everywhere else, so the default
@@ -367,100 +363,39 @@ void Network::deliver_spikes(const vec<Spike> &spikes, std::int64_t step) {
   const auto n_spikes = static_cast<std::int64_t>(spikes.size());
 
   // Each spike's synapse range is exclusive to its source, so stp_weight's
-  // per-synapse state is race-free across threads. Different sources CAN
-  // share a target, though. An atomic there is correct (no lost updates) but
-  // not deterministic: floating-point addition is not associative, so the
-  // result depends on the order concurrent adds land in, which depends on
-  // real-time thread scheduling, not just the input -- the same seed at the
-  // same thread count could disagree run to run, and different thread
-  // counts are not guaranteed to agree at all.
-  //
-  // Instead, each thread stages its contributions in its own buffer, and a
-  // single serial pass afterward applies them to the rings in a fixed order:
-  // every one of thread 0's contributions, then thread 1's, and so on.
-  // schedule(static) hands each thread one contiguous, increasing block of
-  // `spikes` indices, and a thread's own pushes preserve that order, so this
-  // reconstructs exactly the term order a plain serial loop over `spikes`
-  // would produce -- the result is therefore identical for any thread count,
-  // not merely repeatable at a fixed one.
-  //
-  // The buffers are sized from inside the parallel region, behind a single
-  // construct's implicit barrier, rather than from omp_get_max_threads()
-  // beforehand: the two are equal in this codebase (nothing here enables
-  // dynamic adjustment), but indexing exc_deltas_[tid] on an assumption
-  // instead of a guarantee is the kind of thing that only breaks once,
-  // somewhere else, later.
-  #pragma omp parallel
-  {
-#ifdef _OPENMP
-    #pragma omp single
-    {
-      const auto n_threads = static_cast<std::size_t>(omp_get_num_threads());
-      exc_deltas_.resize(n_threads);
-      astro_deltas_.resize(n_threads);
-      inh_deltas_.resize(n_threads);
-    }
-    const auto tid = static_cast<std::size_t>(omp_get_thread_num());
-#else
-    exc_deltas_.resize(1);
-    astro_deltas_.resize(1);
-    inh_deltas_.resize(1);
-    const std::size_t tid = 0;
-#endif
-    vec<RingDelta> &exc_local = exc_deltas_[tid];
-    vec<RingDelta> &astro_local = astro_deltas_[tid];
-    vec<RingDelta> &inh_local = inh_deltas_[tid];
-    exc_local.clear();
-    astro_local.clear();
-    inh_local.clear();
-
-    #pragma omp for schedule(static)
-    for (std::int64_t idx = 0; idx < n_spikes; ++idx) {
-      const Spike &s = spikes[idx];
-      if (s.source < n_exc) {
-        const index_t src = s.source;
-        for (index_t k = exc_primary_.row_start[src];
-             k < exc_primary_.row_start[src + 1]; ++k) {
-          const int slot = static_cast<int>((step + exc_primary_.delay_steps[k]) %
-                                            ring_slots_);
-          exc_local.push_back({slot, exc_primary_.target[k], stp_weight(exc_primary_, k, t_now)});
-        }
-        for (index_t k = neuron_astro_.row_start[src];
-             k < neuron_astro_.row_start[src + 1]; ++k) {
-          const int slot = static_cast<int>(
-              (step + neuron_astro_.delay_steps[k]) % ring_slots_);
-          astro_local.push_back(
-              {slot, neuron_astro_.target[k], stp_weight(neuron_astro_, k, t_now)});
-        }
-      } else {
-        const index_t src = s.source - n_exc;
-        for (index_t k = inh_primary_.row_start[src];
-             k < inh_primary_.row_start[src + 1]; ++k) {
-          const int slot = static_cast<int>((step + inh_primary_.delay_steps[k]) % ring_slots_);
-          // Weights are negative; the ring stores magnitudes -- the sign
-          // flip happens at merge time below, same as the direct write this
-          // replaced.
-          inh_local.push_back({slot, inh_primary_.target[k], stp_weight(inh_primary_, k, t_now)});
-        }
+  // per-synapse state is race-free across threads. Different sources can
+  // share a target, though, so the ring writes below need atomics.
+  #pragma omp parallel for schedule(static)
+  for (std::int64_t idx = 0; idx < n_spikes; ++idx) {
+    const Spike &s = spikes[idx];
+    if (s.source < n_exc) {
+      const index_t src = s.source;
+      for (index_t k = exc_primary_.row_start[src];
+           k < exc_primary_.row_start[src + 1]; ++k) {
+        const int slot = static_cast<int>((step + exc_primary_.delay_steps[k]) %
+                                          ring_slots_);
+        const real w = stp_weight(exc_primary_, k, t_now);
+        #pragma omp atomic update
+        ring_exc_[slot][exc_primary_.target[k]] += w;
       }
-    }
-  }  // implicit barrier: every thread's buffer is complete past this point
-
-  // Serial on purpose: this fixed order is what makes the result
-  // thread-count-independent, not just internally consistent.
-  for (const vec<RingDelta> &bucket : exc_deltas_) {
-    for (const RingDelta &d : bucket) {
-      ring_exc_[static_cast<std::size_t>(d.slot)][d.target] += d.value;
-    }
-  }
-  for (const vec<RingDelta> &bucket : astro_deltas_) {
-    for (const RingDelta &d : bucket) {
-      ring_astro_[static_cast<std::size_t>(d.slot)][d.target] += d.value;
-    }
-  }
-  for (const vec<RingDelta> &bucket : inh_deltas_) {
-    for (const RingDelta &d : bucket) {
-      ring_inh_[static_cast<std::size_t>(d.slot)][d.target] -= d.value;
+      for (index_t k = neuron_astro_.row_start[src];
+           k < neuron_astro_.row_start[src + 1]; ++k) {
+        const int slot = static_cast<int>(
+            (step + neuron_astro_.delay_steps[k]) % ring_slots_);
+        const real w = stp_weight(neuron_astro_, k, t_now);
+        #pragma omp atomic update
+        ring_astro_[slot][neuron_astro_.target[k]] += w;
+      }
+    } else {
+      const index_t src = s.source - n_exc;
+      for (index_t k = inh_primary_.row_start[src];
+           k < inh_primary_.row_start[src + 1]; ++k) {
+        const int slot = static_cast<int>((step + inh_primary_.delay_steps[k]) % ring_slots_);
+        const real w = stp_weight(inh_primary_, k, t_now);
+        // Weights are negative; the ring stores magnitudes.
+        #pragma omp atomic update
+        ring_inh_[slot][inh_primary_.target[k]] -= w;
+      }
     }
   }
 }
@@ -474,41 +409,20 @@ void Network::deliver_sic(std::int64_t step) {
 
   // Only astrocytes with an outgoing connection can contribute. Each source
   // owns an exclusive synapse range (no plasticity state here to race on,
-  // unlike deliver_spikes), but different sources can still share a target
-  // neuron -- same non-associativity problem as deliver_spikes, same fix:
-  // thread-private staging, merged serially in thread order afterward.
+  // unlike deliver_spikes), so only the ring write below needs an atomic.
   const auto n_sources = static_cast<std::int64_t>(sic_sources_.size());
-
-  #pragma omp parallel
-  {
-#ifdef _OPENMP
-    #pragma omp single
-    { sic_deltas_.resize(static_cast<std::size_t>(omp_get_num_threads())); }
-    const auto tid = static_cast<std::size_t>(omp_get_thread_num());
-#else
-    sic_deltas_.resize(1);
-    const std::size_t tid = 0;
-#endif
-    vec<RingDelta> &local = sic_deltas_[tid];
-    local.clear();
-
-    #pragma omp for schedule(static)
-    for (std::int64_t idx = 0; idx < n_sources; ++idx) {
-      const index_t a = sic_sources_[idx];
-      const real factor = astro_.sic_factor(a);
-      if (factor == 0.0) {
-        continue;
-      }
-      for (index_t k = astro_neuron_.row_start[a]; k < astro_neuron_.row_start[a + 1]; ++k) {
-        const int slot = static_cast<int>((step + astro_neuron_.delay_steps[k]) % ring_slots_);
-        local.push_back({slot, astro_neuron_.target[k], astro_neuron_.weight[k] * factor});
-      }
+  #pragma omp parallel for schedule(static)
+  for (std::int64_t idx = 0; idx < n_sources; ++idx) {
+    const index_t a = sic_sources_[idx];
+    const real factor = astro_.sic_factor(a);
+    if (factor == 0.0) {
+      continue;
     }
-  }
-
-  for (const vec<RingDelta> &bucket : sic_deltas_) {
-    for (const RingDelta &d : bucket) {
-      ring_sic_[static_cast<std::size_t>(d.slot)][d.target] += d.value;
+    for (index_t k = astro_neuron_.row_start[a]; k < astro_neuron_.row_start[a + 1]; ++k) {
+      const int slot = static_cast<int>((step + astro_neuron_.delay_steps[k]) % ring_slots_);
+      const real contribution = astro_neuron_.weight[k] * factor;
+      #pragma omp atomic update
+      ring_sic_[slot][astro_neuron_.target[k]] += contribution;
     }
   }
 }
