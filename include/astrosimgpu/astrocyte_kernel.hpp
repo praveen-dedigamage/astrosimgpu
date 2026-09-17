@@ -5,17 +5,11 @@
 #include "astrosimgpu/rng.hpp"
 #include "astrosimgpu/types.hpp"
 
-#if defined(ASTROSIMGPU_KOKKOS)
-#include <Kokkos_Core.hpp>
-#endif
-
 namespace astrosimgpu {
 
 // Every backend needs the per-cell functions marked differently. Bodies are
 // identical in all cases.
-#if defined(ASTROSIMGPU_KOKKOS)
-#define ASTROSIMGPU_FN KOKKOS_INLINE_FUNCTION
-#elif defined(__CUDACC__)
+#if defined(__CUDACC__)
 #define ASTROSIMGPU_FN __host__ __device__ inline
 #else
 #define ASTROSIMGPU_FN inline
@@ -38,10 +32,6 @@ struct AstroConstants {
     real rate_SERCA;
     real ratio_ER_cyt;
 };
-
-#ifdef ASTROSIMGPU_OFFLOAD
-#pragma omp declare target
-#endif
 
 // Right-hand side of the three-variable Li-Rinzel system.
 ASTROSIMGPU_FN void astro_derivatives(const AstroConstants& c, real Ca_tot, real IP3_0, real tau_IP3,
@@ -116,9 +106,5 @@ ASTROSIMGPU_FN real astro_sic_factor(real Ca, real SIC_th, real SIC_scale) {
     }
     return SIC_scale * std::log(y);
 }
-
-#ifdef ASTROSIMGPU_OFFLOAD
-#pragma omp end declare target
-#endif
 
 }  // namespace astrosimgpu

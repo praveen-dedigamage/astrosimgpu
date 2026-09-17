@@ -5,10 +5,7 @@
 
 #include "astrosimgpu/types.hpp"
 
-#if defined(ASTROSIMGPU_KOKKOS)
-#include <Kokkos_Macros.hpp>
-#define ASTROSIMGPU_RNG_FN KOKKOS_INLINE_FUNCTION
-#elif defined(__CUDACC__)
+#if defined(__CUDACC__)
 #define ASTROSIMGPU_RNG_FN __host__ __device__ inline
 #else
 #define ASTROSIMGPU_RNG_FN inline
@@ -19,10 +16,6 @@ namespace astrosimgpu {
 // splitmix64 over (seed, stream, counter). Free functions because a device
 // kernel cannot carry a host object; CounterRng below wraps these, and a test
 // pins the two to agree.
-#ifdef ASTROSIMGPU_OFFLOAD
-#pragma omp declare target
-#endif
-
 ASTROSIMGPU_RNG_FN std::uint64_t rng_bits(std::uint64_t seed, std::uint64_t stream, std::uint64_t counter) {
     std::uint64_t z = seed;
     z += stream * 0x9E3779B97F4A7C15ULL;
@@ -74,10 +67,6 @@ ASTROSIMGPU_RNG_FN int rng_poisson(std::uint64_t seed, std::uint64_t stream, rea
     }
     return count;
 }
-
-#ifdef ASTROSIMGPU_OFFLOAD
-#pragma omp end declare target
-#endif
 
 // Counter-based: every draw is a pure function of (seed, stream, counter), so
 // a cell reproduces its own noise without touching shared state.

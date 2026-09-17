@@ -140,7 +140,7 @@ host path. The only untested part when offload is enabled is the mapping
 directive.
 
 ```bash
-make OFFLOAD=1 OFFLOAD_FLAGS="-mp=gpu -gpu=cc90" CXX=nvc++
+make OFFLOAD=1 OFFLOAD_FLAGS="-mp=gpu -gpu=cc90" CXX=nvc++    # historical -- removed, see docs/backends.md
 ```
 
 Offload is off by default. The default build contains no device code. The

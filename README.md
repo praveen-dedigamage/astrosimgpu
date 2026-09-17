@@ -209,37 +209,27 @@ costs one of five seeds its synchrony.
 
 ## GPU offload
 
-The astrocyte update has been restructured so that it can run as an OpenMP
-target region. This is the first step of the port described in
-`docs/gpu-port.md`.
+The per-cell code lives in free functions (`include/astrosimgpu/astrocyte_kernel.hpp`,
+`neuron_kernel.hpp`, `network_kernel.hpp`) that take plain scalars only, with
+no `this` pointer, no `std::vector`, and no reference into a class -- what
+makes them callable from a device kernel. The host loop and the CUDA kernels
+call the same functions, so the arithmetic is covered by the existing tests
+through the host path.
 
-The per-cell code was moved out of `AstrocytePopulation` into free functions in
-`include/astrosimgpu/astrocyte_kernel.hpp`. These take plain scalars only, with
-no `this` pointer, no `std::vector`, and no reference into a class. A member
-function cannot be offloaded, so this restructuring was needed before any
-directive could be added. The random draws were moved to free functions in
-`rng.hpp` for the same reason.
+The astrocyte update was originally also portable to OpenMP target offload
+and Kokkos, to measure what a portability abstraction costs against native
+CUDA before committing to one (`docs/backends.md` has the full comparison:
+all three device backends agreed to within 4% of each other's marginal cost).
+Once CUDA was confirmed to have no meaningful penalty, the project's scope
+narrowed to CUDA only and the offload/Kokkos code paths were removed from the
+codebase entirely, rather than kept as unused build options. `docs/backends.md`
+keeps the measurements that justified that decision.
 
-The host loop and the offloaded loop call the same `astro_advance` function.
-Only the directive above the loop differs. The arithmetic is therefore covered
-by the existing tests through the host path, and a test checks that
-`rng_normal` matches `CounterRng` exactly.
-
-To build with offload enabled:
-
-```bash
-make OFFLOAD=1 OFFLOAD_FLAGS="-mp=gpu -gpu=cc90" CXX=nvc++
-```
-
-Or with CMake, `-DASTROSIMGPU_OFFLOAD=ON` plus the offload flags for your
-compiler.
-
-A **Kokkos** backend for the same loop exists as an alternative, so the cost of
-a portability layer can be measured against the directives rather than assumed.
-It has not yet been compiled. See `docs/backends.md`.
+Build CUDA with:
 
 ```bash
-cmake -S . -B build-kokkos -DASTROSIMGPU_KOKKOS=ON -DKokkos_ROOT=/path/to/kokkos
+cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release -DASTROSIMGPU_CUDA=ON
+cmake --build build-cuda -j
 ```
 
 Every run reports which backend ran the astrocyte update, so a timing can

@@ -1,13 +1,11 @@
 # Fallback build for machines without CMake. CMakeLists.txt is the primary
 # build; this exists so a checkout compiles with nothing but a C++17 compiler.
+# CUDA is not available through this path -- use CMake with -DASTROSIMGPU_CUDA=ON.
 #
 #   make            build the simulator and the tests
 #   make test       build and run the tests
 #   make run        build and run the short smoke configuration
 #   make OPENMP=1   build with OpenMP (needs a compiler that supports it)
-#   make OFFLOAD=1 CXX=nvc++ OFFLOAD_FLAGS="-mp=gpu -gpu=cc90"
-#                   build the astrocyte update as a GPU target region.
-#                   OFFLOAD_FLAGS carries the OpenMP flag too; see below.
 #   make clean       remove the directory named by BUILD
 #   make distclean   remove every build directory
 
@@ -30,24 +28,7 @@ else
 endif
 
 OPENMP ?= 0
-# OFFLOAD=1 compiles the astrocyte update as an OpenMP target region instead
-# of a host parallel loop, and is off by default: the default build has no
-# device code at all.
-#
-# OFFLOAD_FLAGS must carry the compiler's own OpenMP *and* offload flags,
-# because they differ between compilers and cannot be guessed:
-#
-#   nvc++ : -mp=gpu -gpu=cc90
-#   g++   : -fopenmp -foffload=nvptx-none
-#   clang : -fopenmp -fopenmp-targets=nvptx64
-#
-# -fopenmp is deliberately not added here. NVHPC spells it -mp, and passing
-# both produces a command line no compiler accepts.
-OFFLOAD ?= 0
-ifeq ($(OFFLOAD),1)
-  CXXFLAGS += -DASTROSIMGPU_OFFLOAD $(OFFLOAD_FLAGS)
-  LDFLAGS  += $(OFFLOAD_FLAGS)
-else ifeq ($(OPENMP),1)
+ifeq ($(OPENMP),1)
   CXXFLAGS += $(OMPFLAG)
   LDFLAGS  += $(OMPFLAG)
 else

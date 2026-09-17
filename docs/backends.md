@@ -1,19 +1,28 @@
 # Device backends
 
-The astrocyte update can be dispatched four ways: on the host, through OpenMP
-target offload, through Kokkos, or through native CUDA. All four call the same
-per-cell function, so a comparison between them measures the dispatch and
-nothing else.
+**Only the host build and native CUDA exist in the codebase now.** The
+astrocyte update was originally dispatched four ways -- host, OpenMP target
+offload, Kokkos, and native CUDA -- to measure what each abstraction cost
+before committing to one. That comparison is what the rest of this document
+records. Once CUDA was confirmed to have no meaningful cost over the portable
+routes (see "What portability costs" below) and the project's scope narrowed
+to CUDA only, the OpenMP-target-offload and Kokkos code paths (`ASTROSIMGPU_OFFLOAD`,
+`ASTROSIMGPU_KOKKOS`, `make OFFLOAD=1`, `scripts/roihu/build_kokkos.sh`,
+`scripts/roihu/three_way.sbatch`) were removed entirely, rather than kept as
+dead `#ifdef` branches. The measurements below are kept because they are what
+justified going CUDA-only in the first place, not because the code that
+produced them still builds.
 
 | backend | build | status |
 |---|---|---|
-| host | `make OPENMP=1 CXX=nvc++` | validated on Roihu |
-| OpenMP target | `make OFFLOAD=1 CXX=nvc++` | validated on a GH200 |
-| Kokkos | `cmake -DASTROSIMGPU_KOKKOS=ON` | builds and runs correctly on a GH200 |
-| native CUDA | `cmake -DASTROSIMGPU_CUDA=ON` | validated on a GH200 |
+| host | `make OPENMP=1 CXX=nvc++` | current |
+| native CUDA | `cmake -DASTROSIMGPU_CUDA=ON` | current |
+| OpenMP target offload | removed | historical, see below |
+| Kokkos | removed | historical, see below |
 
-Native CUDA is the reference the portable routes are measured against. All four
-reproduce the regime transition exactly (0.0106 asynchronous, 0.4177 bursting).
+Native CUDA is the reference the portable routes were measured against. All
+four reproduced the regime transition exactly (0.0106 asynchronous, 0.4177
+bursting) while they existed.
 
 ## What portability costs
 
@@ -46,13 +55,12 @@ dispatch.
 ## Why the later ones were cheap to add
 
 The per-cell calculation already lived in free functions taking plain scalars,
-because OpenMP target offload required that. Kokkos and CUDA require the same
-thing, differing only in how the function is marked:
+because OpenMP target offload required that. Kokkos and CUDA required the
+same thing, differing only in how the function was marked. What remains today,
+now that only CUDA needs a device marking:
 
 ```cpp
-#if defined(ASTROSIMGPU_KOKKOS)
-#define ASTROSIMGPU_FN KOKKOS_INLINE_FUNCTION
-#elif defined(__CUDACC__)
+#if defined(__CUDACC__)
 #define ASTROSIMGPU_FN __host__ __device__ inline
 #else
 #define ASTROSIMGPU_FN inline
@@ -64,10 +72,10 @@ decoration appears exactly where a device version is needed and the host build
 is untouched.
 
 `astro_advance`, `astro_derivatives` and the three random number functions
-carry that decoration. Their bodies are untouched, so all three backends run
+carry that decoration. Their bodies are untouched, so CUDA and the host run
 identical arithmetic and the existing tests cover it through the host path.
 
-## What differs
+## What differed (OpenMP target and Kokkos, while they existed)
 
 | | OpenMP target | Kokkos | native CUDA |
 |---|---|---|---|
@@ -77,10 +85,10 @@ identical arithmetic and the existing tests cover it through the host path.
 | portability | NVIDIA and AMD via the compiler | CUDA, HIP, SYCL, OpenMP, Serial | NVIDIA only |
 | compiler | any with offload support | any Kokkos supports | nvcc for one file |
 
-Data moves at the same four points in both: allocate and copy on entering a
-run, push the synaptic input each step, pull calcium back each step, copy out
-at the end. That was deliberate. If the transfer pattern differed the
-comparison would measure the pattern rather than the abstraction.
+Data moved at the same four points in all three: allocate and copy on entering
+a run, push the synaptic input each step, pull calcium back each step, copy
+out at the end. That was deliberate. If the transfer pattern had differed the
+comparison would have measured the pattern rather than the abstraction.
 
 ## Building CUDA
 
@@ -101,59 +109,6 @@ advantage in the comparison.
 Every CUDA call is checked and aborts on failure. A silent failure would
 produce a simulation that runs and reports plausible output, which is the
 failure mode this project has already lost a day to.
-
-## Building Kokkos
-
-Kokkos is a CMake package, so the Makefile does not support it.
-
-On Roihu use `nvc++` for the host build too. Lmod swaps `gcc` out when `nvhpc`
-loads, so the two compilers are not available at once, and objects from both
-link into undefined references to NVHPC runtime symbols.
-
-```bash
-cmake -S . -B build-kokkos \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DASTROSIMGPU_KOKKOS=ON \
-      -DKokkos_ROOT=/path/to/kokkos/install
-cmake --build build-kokkos -j
-```
-
-`ASTROSIMGPU_KOKKOS` and `ASTROSIMGPU_OFFLOAD` are alternatives and CMake
-refuses both at once.
-
-Which device Kokkos targets is fixed when Kokkos itself is built, not here. A
-Kokkos configured with `Kokkos_ENABLE_CUDA` and `Kokkos_ARCH_HOPPER90` gives a
-GH200 build; one configured with `Kokkos_ENABLE_OPENMP` gives a host build from
-the same source. Every run reports which it got:
-
-```
-astrocyte backend     Kokkos, Cuda
-```
-
-## Getting Kokkos on Roihu
-
-Check for an existing installation first:
-
-```bash
-module spider kokkos
-```
-
-If there is none, building it takes a few minutes:
-
-```bash
-git clone --depth 1 https://github.com/kokkos/kokkos.git
-cmake -S kokkos -B kokkos-build \
-      -DCMAKE_INSTALL_PREFIX=$PWD/kokkos-install \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DKokkos_ENABLE_CUDA=ON \
-      -DKokkos_ARCH_HOPPER90=ON \
-      -DKokkos_ENABLE_OPENMP=ON
-cmake --build kokkos-build -j16 --target install
-```
-
-`Kokkos_ARCH_HOPPER90` is the GH200's compute capability. Build it on
-`roihu-gpu.csc.fi`, since binaries do not cross between the two login
-architectures.
 
 ## What the comparison is for
 

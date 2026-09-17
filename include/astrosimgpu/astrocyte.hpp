@@ -3,9 +3,6 @@
 #include "astrosimgpu/astrocyte_kernel.hpp"
 #include "astrosimgpu/parameters.hpp"
 
-#if defined(ASTROSIMGPU_KOKKOS)
-#include <Kokkos_Core.hpp>
-#endif
 #if defined(ASTROSIMGPU_CUDA)
 #include "astrosimgpu/astrocyte_cuda.hpp"
 #endif
@@ -69,14 +66,6 @@ public:
 private:
     [[nodiscard]] AstroConstants constants() const;
 
-#if defined(ASTROSIMGPU_KOKKOS)
-    // The vectors below stay canonical; these are synced at the same four
-    // points as the OpenMP path so the backends stay comparable.
-    using DeviceArray = Kokkos::View<real*>;
-    DeviceArray d_Ca_, d_IP3_, d_h_, d_ip3_input_;
-    DeviceArray d_Ca_tot_, d_IP3_0_, d_tau_IP3_, d_delta_IP3_;
-    bool device_ready_ = false;
-#endif
 #if defined(ASTROSIMGPU_CUDA)
     CudaAstro* cuda_ = nullptr;
 #endif

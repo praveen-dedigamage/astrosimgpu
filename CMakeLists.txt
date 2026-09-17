@@ -13,13 +13,6 @@ option(ASTROSIMGPU_NATIVE "Tune for the building machine (-march=native)" OFF)
 option(ASTROSIMGPU_OPENMP "Use OpenMP for the per-cell update loops" ON)
 option(ASTROSIMGPU_BUILD_TESTS "Build the test binary" ON)
 # Off by default: the default build contains no device code.
-option(ASTROSIMGPU_OFFLOAD "Compile the astrocyte update as an OpenMP target region" OFF)
-# Kokkos is an alternative to the OpenMP target path, not an addition to it.
-# Both express the same loop over the same per-cell function; the point of
-# having both is to measure what the abstraction costs.
-option(ASTROSIMGPU_KOKKOS "Run the astrocyte update through Kokkos" OFF)
-# Native CUDA, as the reference point the two portable routes are measured
-# against. Also mutually exclusive with them.
 option(ASTROSIMGPU_CUDA "Run the astrocyte update through native CUDA" OFF)
 
 add_library(astrosimgpu_core
@@ -39,9 +32,9 @@ target_include_directories(astrosimgpu_core PUBLIC
 if(MSVC)
   target_compile_options(astrosimgpu_core PRIVATE /W4)
 else()
-  # Kokkos CUDA builds compile through nvcc or nvcc_wrapper, which reject some
-  # of these and emit a great deal of noise for the rest.
-  if(ASTROSIMGPU_KOKKOS OR ASTROSIMGPU_CUDA)
+  # nvcc/nvcc_wrapper reject some of these and emit a great deal of noise
+  # for the rest.
+  if(ASTROSIMGPU_CUDA)
     target_compile_options(astrosimgpu_core PRIVATE -Wall)
   else()
     target_compile_options(astrosimgpu_core PRIVATE -Wall -Wextra -Wpedantic)
@@ -66,9 +59,6 @@ if(ASTROSIMGPU_OPENMP)
 endif()
 
 if(ASTROSIMGPU_CUDA)
-  if(ASTROSIMGPU_OFFLOAD OR ASTROSIMGPU_KOKKOS)
-    message(FATAL_ERROR "The device backends are alternatives; enable exactly one")
-  endif()
   enable_language(CUDA)
   if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     # 90 is Hopper, which is what a GH200 is. Override for other hardware.
@@ -86,33 +76,6 @@ if(ASTROSIMGPU_CUDA)
   # is header-only, so nothing needs linking.
   target_include_directories(astrosimgpu_core PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
   message(STATUS "Native CUDA backend, architecture ${CMAKE_CUDA_ARCHITECTURES}")
-endif()
-
-if(ASTROSIMGPU_KOKKOS)
-  if(ASTROSIMGPU_OFFLOAD OR ASTROSIMGPU_CUDA)
-    message(FATAL_ERROR "The device backends are alternatives; enable exactly one")
-  endif()
-  find_package(Kokkos REQUIRED)
-  target_compile_definitions(astrosimgpu_core PUBLIC ASTROSIMGPU_KOKKOS)
-  target_link_libraries(astrosimgpu_core PUBLIC Kokkos::kokkos)
-  # Which device this targets was decided when Kokkos was built, not here.
-  message(STATUS "Kokkos devices: ${Kokkos_DEVICES}")
-  message(STATUS "Kokkos arch:    ${Kokkos_ARCH}")
-  if(Kokkos_ENABLE_CUDA)
-    # A lambda passed to parallel_for becomes a __device__ lambda, which nvcc
-    # only accepts with this enabled. Kokkos usually sets it; assert it rather
-    # than discover it in a wall of template errors.
-    kokkos_check(OPTIONS CUDA_LAMBDA)
-  endif()
-endif()
-
-if(ASTROSIMGPU_OFFLOAD)
-  target_compile_definitions(astrosimgpu_core PUBLIC ASTROSIMGPU_OFFLOAD)
-  if(NOT OpenMP_CXX_FOUND)
-    message(FATAL_ERROR "ASTROSIMGPU_OFFLOAD needs OpenMP")
-  endif()
-  message(STATUS "OpenMP target offload enabled -- set the offload flags for "
-                 "your compiler via CMAKE_CXX_FLAGS, e.g. -mp=gpu -gpu=cc90")
 endif()
 
 add_executable(astrosimgpu src/main.cpp)

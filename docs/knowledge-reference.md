@@ -22,9 +22,10 @@ the top-level `README.md`.
 
 - **`include/astrosimgpu/astrocyte_kernel.hpp`** -- pure per-cell math
   (`astro_derivatives`, `astro_advance`), free functions with no `this`, no
-  `std::vector`. This is what makes the same code run on host, OpenMP
-  target-offload, Kokkos, and CUDA device -- one implementation, no risk of
-  the backends drifting apart.
+  `std::vector`. This is what makes the same code run on both host and CUDA
+  device -- one implementation, no risk of the backends drifting apart. (It
+  also ran on OpenMP target-offload and Kokkos, before those backends were
+  removed -- see `docs/backends.md`.)
 - **`include/astrosimgpu/astrocyte.hpp` / `neuron.hpp`** -- structure-of-arrays
   population classes (`AstrocytePopulation`, `NeuronPopulation`). Each state
   variable is a separate contiguous array so per-cell updates are unit-stride
@@ -167,13 +168,13 @@ latency-bound: 42% of cycles stall on the RK4 stage dependency chain.
 | Backend | Status | Notes |
 |---|---|---|
 | Host (default) | Complete | No device code, C++17 only |
-| OpenMP target offload | Astrocyte update only | Behind `OFFLOAD=1` build flag |
-| Kokkos | Astrocyte update only | Not yet compiled per repo docs (may be stale -- check current state) |
-| Native CUDA | Astrocyte update only | `ASTROSIMGPU_CUDA=ON`; `src/cuda_kernels.cu` |
+| Native CUDA | Complete -- astrocyte, neuron, and delivery all on device | `ASTROSIMGPU_CUDA=ON`; `src/cuda_kernels.cu` |
+| OpenMP target offload | Removed | Astrocyte update only while it existed; see `docs/backends.md` |
+| Kokkos | Removed | Astrocyte update only while it existed; see `docs/backends.md` |
 
-**Neuron update is host-only in every backend.** It's the larger phase in
-almost every configuration (Section 6) -- this is Stage 3 of the roadmap,
-not yet started.
+**Neuron update and spike/SIC delivery are on CUDA too now** (Stages 3 and 4
+of `docs/gpu-port.md`, both complete) -- this section predates that work; see
+`docs/gpu-port.md` for the current state and measurements.
 
 All device backends move data at exactly four points (`device_begin`,
 `device_push_input`, `device_pull_calcium`, `device_end`) so comparing them
@@ -240,26 +241,26 @@ cmake --build build-roihu -j16
 cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release \
     -DASTROSIMGPU_CUDA=ON -DASTROSIMGPU_NATIVE=ON
 cmake --build build-cuda -j16
-
-# OpenMP target offload (astrocyte update only)
-make OFFLOAD=1 CXX=nvc++ BUILD=build-gpu OFFLOAD_FLAGS="-mp=gpu -gpu=cc90" -j16
-
-# Kokkos
-bash scripts/roihu/build_kokkos.sh
 ```
+
+OpenMP target offload and Kokkos (both built the astrocyte update only) have
+since been removed from the codebase entirely, along with the scripts that
+built/tested them (`gpu_offload_test.sbatch`, `three_way.sbatch`,
+`build_kokkos.sh`) -- see `docs/backends.md` for the measurements that were
+recorded while they existed. Only the host build and native CUDA remain.
 
 ### This repo's Roihu scripts (`scripts/roihu/`)
 
 | Script | Purpose |
 |---|---|
-| `build.sh` | Builds the OpenMP host binary, runs the 81/86 checks |
+| `build.sh` | Builds the OpenMP host binary, runs the component checks |
 | `baseline.sbatch` | CPU thread-scaling baseline (1 to 72 threads) + 20k-cell run |
-| `cuda_only.sbatch` | CUDA backend only: correctness + regime transition + astrocyte-update us/step sweep, no cross-backend comparison |
-| `gpu_offload_test.sbatch` | Validates OpenMP-offload build against CPU build, same job |
-| `three_way.sbatch` (really four-way) | Compares host / OpenMP-target / Kokkos / CUDA side by side, correctness + throughput |
-| `kernel_scaling.sbatch` | Astrocyte-kernel throughput vs. population size, host vs. OpenMP-offload (does **not** currently include CUDA -- would need a `GPU_BIN=build-cuda/...` addition) |
-| `nsys_profile.sbatch` | Whole-step Nsight Systems timeline, CPU+GPU, `--stats=true` printed to the job log |
-| `ncu_profile.sbatch` | Nsight Compute deep-dive on `astro_update_kernel`, `--print-summary=per-kernel` to the job log |
+| `cuda_only.sbatch` | CUDA backend only: correctness + regime transition + astrocyte-update us/step sweep |
+| `kernel_scaling.sbatch` | Astrocyte-kernel throughput vs. population size, host vs. CUDA |
+| `nsys_sweep.sbatch` | `nsys` phase/kernel profile looped across the full neuron-scaling config sweep, one job |
+| `nsys_profile.sbatch` | Whole-step Nsight Systems timeline for one config, `--stats=true` printed to the job log |
+| `ncu_profile.sbatch` | Nsight Compute deep-dive on a kernel (regex-filterable via `KERNEL=`), `--print-summary=per-kernel` to the job log |
+| `paper_validation.sbatch` | Reproduces the published "Sparse" benchmark firing rate against the current CUDA build |
 
 ## 10. Where to go next
 

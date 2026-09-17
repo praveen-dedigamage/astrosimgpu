@@ -10,9 +10,7 @@ namespace astrosimgpu {
 // identical in all cases. Independent copy of the same macro ladder as
 // astrocyte_kernel.hpp/neuron_kernel.hpp/rng.hpp, rather than a cross-include,
 // so this file stays narrow.
-#if defined(ASTROSIMGPU_KOKKOS)
-#define ASTROSIMGPU_FN KOKKOS_INLINE_FUNCTION
-#elif defined(__CUDACC__)
+#if defined(__CUDACC__)
 #define ASTROSIMGPU_FN __host__ __device__ inline
 #else
 #define ASTROSIMGPU_FN inline

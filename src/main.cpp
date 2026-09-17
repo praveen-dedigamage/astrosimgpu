@@ -15,9 +15,6 @@
 #ifdef _OPENMP
 #include <omp.h>
 #endif
-#if defined(ASTROSIMGPU_KOKKOS)
-#include <Kokkos_Core.hpp>
-#endif
 
 using namespace astrosimgpu;
 
@@ -106,11 +103,6 @@ std::string format_summary(const Network& net, const NetworkStats& s, double wal
     // cannot be attributed to anything.
 #if defined(ASTROSIMGPU_CUDA)
     os << "astrocyte backend     native CUDA\n";
-#elif defined(ASTROSIMGPU_KOKKOS)
-    os << "astrocyte backend     Kokkos, "
-       << Kokkos::DefaultExecutionSpace::name() << "\n";
-#elif defined(ASTROSIMGPU_OFFLOAD)
-    os << "astrocyte backend     OpenMP target offload\n";
 #else
     os << "astrocyte backend     host\n";
 #endif
@@ -168,11 +160,6 @@ std::string format_summary(const Network& net, const NetworkStats& s, double wal
 }  // namespace
 
 int main(int argc, char** argv) {
-#if defined(ASTROSIMGPU_KOKKOS)
-    // Kokkos must outlive every View. run_simulation is called inside this
-    // scope guard so the device arrays are destroyed before finalize.
-    Kokkos::ScopeGuard kokkos_guard(argc, argv);
-#endif
     std::string config_path = "config/use_case.json";
     std::string output_override;
     bool run_analysis = true;

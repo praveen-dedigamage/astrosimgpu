@@ -11,9 +11,7 @@ namespace astrosimgpu {
 // ASTROSIMGPU_FN, kept as an independent definition here (rather than
 // including that header) so this file stays narrow -- rng.hpp does the same
 // thing under its own name, ASTROSIMGPU_RNG_FN.
-#if defined(ASTROSIMGPU_KOKKOS)
-#define ASTROSIMGPU_FN KOKKOS_INLINE_FUNCTION
-#elif defined(__CUDACC__)
+#if defined(__CUDACC__)
 #define ASTROSIMGPU_FN __host__ __device__ inline
 #else
 #define ASTROSIMGPU_FN inline
