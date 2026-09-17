@@ -3,9 +3,14 @@
 #include <string>
 
 #include "astrosimgpu/astrocyte.hpp"
+#include "astrosimgpu/network_kernel.hpp"
 #include "astrosimgpu/neuron.hpp"
 #include "astrosimgpu/parameters.hpp"
 #include "astrosimgpu/recorder.hpp"
+
+#if defined(ASTROSIMGPU_CUDA)
+#include "astrosimgpu/network_cuda.hpp"
+#endif
 
 namespace astrosimgpu {
 
@@ -97,6 +102,15 @@ private:
     void apply_arrivals(std::int64_t step);
     void drive_astrocytes(std::int64_t step);
 
+#if defined(ASTROSIMGPU_CUDA)
+    // Stage 4: the delivery phases' resident state (connectivity CSR arrays,
+    // ring buffers, the two precomputed index lists), separate from
+    // astro_'s/neurons_' own device_begin/device_end since it belongs to
+    // neither population -- it's the wiring between them.
+    void delivery_device_begin();
+    void delivery_device_end();
+#endif
+
     // Tsodyks-Markram: x <- 1 + (x - x u - 1) exp(-dt/tau_rec),
     //                   u <- U + u (1 - U) exp(-dt/tau_fac), in that order.
     // tau_fac = 0 gives pure depression.
@@ -116,6 +130,13 @@ private:
 
     // Pending input, [slot][cell]. A signal emitted at step t with delay d
     // lands in slot (t+d) % slots. No event queue, no sorting.
+    //
+    // Under ASTROSIMGPU_CUDA the resident copy of this lives in
+    // CudaDelivery instead (see delivery_ below); these host-side vectors
+    // are declared either way (so non-CUDA-guarded code compiles
+    // unconditionally) but left unallocated by build() under CUDA, so a
+    // run doesn't hold an idle host-side copy at the sizes this is meant to
+    // help (e.g. 3 * 10,000,000 * 11 ring slots * 8 bytes per run).
     vec<vec<real>> ring_exc_, ring_inh_, ring_sic_, ring_astro_;
     int ring_slots_ = 1;
 
@@ -131,6 +152,10 @@ private:
     vec<index_t> astro_input_sinks_;  // are the target of some neuron
 
     vec<Spike> spike_buffer_;
+
+#if defined(ASTROSIMGPU_CUDA)
+    CudaDelivery* delivery_ = nullptr;
+#endif
 };
 
 }  // namespace astrosimgpu

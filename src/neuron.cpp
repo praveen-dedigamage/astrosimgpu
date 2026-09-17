@@ -105,17 +105,21 @@ void NeuronPopulation::device_end() {
 }
 
 void NeuronPopulation::update(const TimeGrid& time, std::int64_t step, std::uint64_t seed,
-                              vec<Spike>& out) {
+                              vec<Spike>& out, bool inputs_on_device, bool pull_spikes) {
+#if !defined(ASTROSIMGPU_CUDA)
+    // Only meaningful for the CUDA dispatch branch below; the host path
+    // always pushes/pulls every step regardless.
+    (void)inputs_on_device;
+    (void)pull_spikes;
+#endif
     const index_t n = size();
     const real h_step = time.h();
     const real dt = time.dt;
 
     // The injected current is piecewise constant over noise_dt; every target
     // draws its own value, but all of them change at the same instants.
-    const int steps_per_noise_exc =
-        std::max(1, static_cast<int>(std::llround(input_exc_.noise_dt / dt)));
-    const int steps_per_noise_inh =
-        std::max(1, static_cast<int>(std::llround(input_inh_.noise_dt / dt)));
+    const int steps_per_noise_exc = std::max(1, static_cast<int>(std::llround(input_exc_.noise_dt / dt)));
+    const int steps_per_noise_inh = std::max(1, static_cast<int>(std::llround(input_inh_.noise_dt / dt)));
     const auto noise_index_exc = static_cast<std::uint64_t>(step / steps_per_noise_exc);
     const auto noise_index_inh = static_cast<std::uint64_t>(step / steps_per_noise_inh);
 
@@ -132,20 +136,28 @@ void NeuronPopulation::update(const TimeGrid& time, std::int64_t step, std::uint
 
 #if defined(ASTROSIMGPU_CUDA)
     if (cuda_ != nullptr) {
-        cuda_neuron_push_input(cuda_, exc_input_.data(), inh_input_.data(), I_sic_.data());
+        if (!inputs_on_device) {
+            cuda_neuron_push_input(cuda_, exc_input_.data(), inh_input_.data(), I_sic_.data());
+        }
         cuda_neuron_update(cuda_, h_step, time.substeps, dt, seed, step, input_exc_, input_inh_,
                            noise_exc, noise_index_exc, noise_inh, noise_index_inh);
-        cuda_neuron_pull_spikes(cuda_, spiked_buffer_.data());
-        // The kernel already zeroed the device-side exc_input_/inh_input_
-        // after consuming them; clear the host mirrors the same way the
-        // host loop below does, so a later host build/config toggle sees a
-        // consistent state.
-        std::fill(exc_input_.begin(), exc_input_.end(), 0.0);
-        std::fill(inh_input_.begin(), inh_input_.end(), 0.0);
-        for (index_t cell = 0; cell < n; ++cell) {
-            if (spiked_buffer_[cell]) {
-                out.push_back(Spike{step, cell});
+        if (pull_spikes) {
+            cuda_neuron_pull_spikes(cuda_, spiked_buffer_.data());
+            for (index_t cell = 0; cell < n; ++cell) {
+                if (spiked_buffer_[cell]) {
+                    out.push_back(Spike{step, cell});
+                }
             }
+        }
+        if (!inputs_on_device) {
+            // The kernel already zeroed the device-side exc_input_/inh_input_
+            // after consuming them; clear the host mirrors the same way the
+            // host loop below does, so a later host build/config toggle sees
+            // a consistent state. When inputs_on_device is true, these host
+            // vectors are stale mirrors the delivery path never wrote to in
+            // the first place -- nothing to clear.
+            std::fill(exc_input_.begin(), exc_input_.end(), 0.0);
+            std::fill(inh_input_.begin(), inh_input_.end(), 0.0);
         }
         return;
     }

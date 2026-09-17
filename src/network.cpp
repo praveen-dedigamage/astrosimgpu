@@ -120,13 +120,56 @@ void Network::build() {
   }
 
   const index_t n_neurons = neurons_.size();
+#if !defined(ASTROSIMGPU_CUDA)
+  // Under CUDA the resident copy lives in CudaDelivery (see
+  // delivery_device_begin); leaving these unallocated avoids an idle
+  // host-side copy at the sizes Stage 4 is meant to help.
   ring_exc_.assign(ring_slots_, vec<real>(n_neurons, 0.0));
   ring_inh_.assign(ring_slots_, vec<real>(n_neurons, 0.0));
   ring_sic_.assign(ring_slots_, vec<real>(n_neurons, 0.0));
   ring_astro_.assign(ring_slots_, vec<real>(cfg_.N.N_astro, 0.0));
+#endif
   ring_sic_pending_.assign(ring_slots_, 0);
   sic_delay_steps_ = delay_to_steps(cfg_.syn.d_a2n, dt);
 }
+
+#if defined(ASTROSIMGPU_CUDA)
+void Network::delivery_device_begin() {
+  // astro_neuron_ (SIC) never has plasticity (see build_tripartite: `none`
+  // with enabled=false), so it has no stp_* arrays to pass at all -- unlike
+  // the other three sets, whose stp_* vectors are only populated when
+  // cfg_.syn.stp.enabled, and empty otherwise. Passing the real synapse
+  // count for stp_x/stp_u/stp_t_last when they are in fact empty would have
+  // device_copy read past an empty vector; pass 0 there instead so it skips
+  // the copy, mirroring how the host stp_weight avoids the same trap.
+  const index_t exc_stp_n = cfg_.syn.stp.enabled ? exc_primary_.size() : 0;
+  const index_t inh_stp_n = cfg_.syn.stp.enabled ? inh_primary_.size() : 0;
+  const index_t na_stp_n = cfg_.syn.stp.enabled ? neuron_astro_.size() : 0;
+
+  delivery_ = cuda_delivery_create(
+      neurons_.size(), astro_.size(), cfg_.N.N_exc, ring_slots_,
+      exc_primary_.row_start.data(), exc_primary_.target.data(), exc_primary_.weight.data(),
+      exc_primary_.delay_steps.data(), exc_primary_.stp_x.data(), exc_primary_.stp_u.data(),
+      exc_primary_.stp_t_last.data(), exc_primary_.size(), exc_stp_n,
+      inh_primary_.row_start.data(), inh_primary_.target.data(), inh_primary_.weight.data(),
+      inh_primary_.delay_steps.data(), inh_primary_.stp_x.data(), inh_primary_.stp_u.data(),
+      inh_primary_.stp_t_last.data(), inh_primary_.size(), inh_stp_n,
+      neuron_astro_.row_start.data(), neuron_astro_.target.data(), neuron_astro_.weight.data(),
+      neuron_astro_.delay_steps.data(), neuron_astro_.stp_x.data(), neuron_astro_.stp_u.data(),
+      neuron_astro_.stp_t_last.data(), neuron_astro_.size(), na_stp_n,
+      astro_neuron_.row_start.data(), astro_neuron_.target.data(), astro_neuron_.weight.data(),
+      astro_neuron_.delay_steps.data(), astro_neuron_.size(), sic_sources_.data(),
+      static_cast<index_t>(sic_sources_.size()), astro_input_sinks_.data(),
+      static_cast<index_t>(astro_input_sinks_.size()));
+}
+
+void Network::delivery_device_end() {
+  if (delivery_ != nullptr) {
+    cuda_delivery_destroy(delivery_);
+    delivery_ = nullptr;
+  }
+}
+#endif
 
 void Network::build_primary_connections(CounterRng& rng) {
   const index_t n_exc = cfg_.N.N_exc;
@@ -338,23 +381,21 @@ void Network::build_primary_connections(CounterRng& rng) {
   astro_neuron_.finalise(n_astro, none);
 }
 
-real Network::stp_weight(ConnectionSet &set, index_t synapse,real t_now) const {
+real Network::stp_weight(ConnectionSet &set, index_t synapse, real t_now) const {
   const StpParams &stp = cfg_.syn.stp;
+  // stp_x/stp_u/stp_t_last are empty vectors when STP is disabled (see
+  // ConnectionSet::finalise), so set.stp_x[synapse] et al. would be an
+  // out-of-bounds operator[] the moment stp.enabled is false -- undefined
+  // behaviour regardless of whether synapse_stp_weight's body goes on to use
+  // the value, since arguments are evaluated before the call. Route around
+  // forming those references at all in that case.
   if (!stp.enabled) {
-    return set.weight[synapse];
+    real dummy_x = 0.0, dummy_u = 0.0, dummy_t = 0.0;
+    return synapse_stp_weight(false, set.weight[synapse], stp.U, stp.tau_rec, stp.tau_fac, t_now,
+                              dummy_x, dummy_u, dummy_t);
   }
-  const real dt = t_now - set.stp_t_last[synapse];
-  const real x_decay = std::exp(-dt / stp.tau_rec);
-  const real u_decay = stp.tau_fac < 1e-10 ? 0.0 : std::exp(-dt / stp.tau_fac);
-
-  real &x = set.stp_x[synapse];
-  real &u = set.stp_u[synapse];
-
-  x = 1.0 + (x - x * u - 1.0) * x_decay;
-  u = stp.U + u * (1.0 - stp.U) * u_decay;
-  set.stp_t_last[synapse] = t_now;
-
-  return set.weight[synapse] * x * u;
+  return synapse_stp_weight(true, set.weight[synapse], stp.U, stp.tau_rec, stp.tau_fac, t_now,
+                            set.stp_x[synapse], set.stp_u[synapse], set.stp_t_last[synapse]);
 }
 
 void Network::deliver_spikes(const vec<Spike> &spikes, std::int64_t step) {
@@ -514,6 +555,9 @@ void Network::run(Recorder &recorder) {
   // the arrays present and move nothing.
   astro_.device_begin();
   neurons_.device_begin();
+#if defined(ASTROSIMGPU_CUDA)
+  delivery_device_begin();
+#endif
 
   for (std::int64_t step = 0; step < total; ++step) {
     const bool measured = step >= pre_steps;
@@ -523,20 +567,36 @@ void Network::run(Recorder &recorder) {
 
     auto t = clock::now();
     ASTROSIMGPU_NVTX_PUSH("apply_arrivals");
+#if defined(ASTROSIMGPU_CUDA)
+    {
+      // Stage 4: ring buffers are device-resident (see delivery_device_begin);
+      // this writes the current slot's contents directly into
+      // CudaNeuron's/CudaAstro's device buffers, no host round trip.
+      const int slot = static_cast<int>(step % ring_slots_);
+      const bool sic_arrives = ring_sic_pending_[slot] != 0;
+      ring_sic_pending_[slot] = 0;
+      cuda_delivery_apply_arrivals(delivery_, step, sic_arrives, neurons_.device_exc_input(),
+                                   neurons_.device_inh_input(), neurons_.device_sic(),
+                                   astro_.device_ip3_input());
+    }
+#else
     apply_arrivals(step);
+#endif
     ASTROSIMGPU_NVTX_POP();
     if (measured) {
       profile_.deliver += tick(t);
     }
 
     // Per-cell work with no communication, so timed apart from delivery.
-    // CUDA: generated directly on the device (Stage 2 of docs/gpu-port.md),
-    // so device_push_input has to land first -- this adds to it rather than
-    // overwriting. Every other backend keeps the host loop, unchanged.
+    // CUDA: generated directly on the device (Stage 2 of docs/gpu-port.md).
+    // No device_push_input() here under Stage 4: apply_arrivals above
+    // already deposited this step's SIC-to-astrocyte contribution straight
+    // into the device-resident ip3_input buffer, so drive_device only adds
+    // on top of that, same as before. Every other backend keeps the host
+    // loop, unchanged.
     t = clock::now();
     ASTROSIMGPU_NVTX_PUSH("drive_astrocytes");
 #if defined(ASTROSIMGPU_CUDA)
-    astro_.device_push_input();
     if (cfg_.input_astro.poiss_rate > 0.0) {
       const real lambda = cfg_.input_astro.poiss_rate * cfg_.time.dt * 1e-3;
       astro_.drive_device(step, cfg_.seed, lambda, cfg_.input_astro.poiss_weight);
@@ -555,9 +615,14 @@ void Network::run(Recorder &recorder) {
     astro_.device_push_input();
 #endif
     astro_.update(cfg_.time, step, cfg_.seed);
-    // deliver_sic reads calcium on the host.
+#if !defined(ASTROSIMGPU_CUDA)
+    // Under Stage 4, deliver_sic reads calcium directly on the device
+    // (astro_.device_calcium()); the host Ca_ mirror is only refreshed when
+    // the Recorder actually needs it (see the recording block below), not
+    // unconditionally every step.
     astro_.device_pull_calcium();
     astro_.clear_inputs(astro_input_sinks_);
+#endif
     ASTROSIMGPU_NVTX_POP();
     if (measured) {
       profile_.update_astro += tick(t);
@@ -566,7 +631,18 @@ void Network::run(Recorder &recorder) {
     t = clock::now();
     ASTROSIMGPU_NVTX_PUSH("update_neuron");
     spike_buffer_.clear();
+#if defined(ASTROSIMGPU_CUDA)
+    // inputs_on_device: apply_arrivals above already wrote this step's
+    // drive directly into the device buffers, so the usual
+    // cuda_neuron_push_input would stomp it with stale host zeros.
+    // pull_spikes: only needed when spikes.csv actually wants individual
+    // Spike entries; deliver_spikes below reads the device flags directly
+    // either way and needs no host copy at all.
+    neurons_.update(cfg_.time, step, cfg_.seed, spike_buffer_, /*inputs_on_device=*/true,
+                    /*pull_spikes=*/cfg_.record_spikes);
+#else
     neurons_.update(cfg_.time, step, cfg_.seed, spike_buffer_);
+#endif
     ASTROSIMGPU_NVTX_POP();
     if (measured) {
       profile_.update_neuron += tick(t);
@@ -574,7 +650,12 @@ void Network::run(Recorder &recorder) {
 
     t = clock::now();
     ASTROSIMGPU_NVTX_PUSH("deliver_spikes");
+#if defined(ASTROSIMGPU_CUDA)
+    cuda_delivery_spikes(delivery_, step, static_cast<real>(step) * dt, cfg_.syn.stp,
+                         neurons_.device_spiked());
+#else
     deliver_spikes(spike_buffer_, step);
+#endif
     ASTROSIMGPU_NVTX_POP();
     if (measured) {
       profile_.spike_cd += tick(t);
@@ -583,7 +664,13 @@ void Network::run(Recorder &recorder) {
     t = clock::now();
     ASTROSIMGPU_NVTX_PUSH("deliver_sic");
     if (step % cfg_.syn.sic_interval == 0) {
+#if defined(ASTROSIMGPU_CUDA)
+      ring_sic_pending_[(step + sic_delay_steps_) % ring_slots_] = 1;
+      cuda_delivery_sic(delivery_, step, cfg_.astro.SIC_th, cfg_.astro.SIC_scale,
+                        astro_.device_calcium());
+#else
       deliver_sic(step);
+#endif
     }
     ASTROSIMGPU_NVTX_POP();
     if (measured) {
@@ -609,6 +696,12 @@ void Network::run(Recorder &recorder) {
 
     if ((step - pre_steps) % cfg_.record_every == 0) {
       if (cfg_.record_astro) {
+#if defined(ASTROSIMGPU_CUDA)
+        // Stage 4 no longer pulls calcium every step (deliver_sic reads it
+        // directly on the device); refresh the host mirror here instead,
+        // only on the steps recording actually happens.
+        astro_.device_pull_calcium();
+#endif
         for (index_t a = 0; a < astro_rec; ++a) {
           recorder.write_astro(t_ms, a, astro_.Ca()[a], astro_.IP3()[a]);
         }
@@ -628,6 +721,9 @@ void Network::run(Recorder &recorder) {
   }
   astro_.device_end();
   neurons_.device_end();
+#if defined(ASTROSIMGPU_CUDA)
+  delivery_device_end();
+#endif
 
   profile_.total = tick(measured_start);
   std::cout << "  done            " << std::endl;

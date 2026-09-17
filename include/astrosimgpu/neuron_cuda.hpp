@@ -48,4 +48,15 @@ void cuda_neuron_update(CudaNeuron* state, real h_step, int substeps, real dt,
                         std::uint64_t noise_index_exc, real shared_noise_inh,
                         std::uint64_t noise_index_inh);
 
+// Deliberate crack in the opacity above: the Stage 4 delivery kernels
+// (network_cuda.cu) read the spike flags and write the synaptic drive
+// directly on the device, so they need the raw pointers CudaNeuron already
+// owns -- no new state. This is what lets deliver_spikes skip the
+// pull-spikes/host-reconstruction round trip entirely, and lets
+// apply_arrivals skip cuda_neuron_push_input.
+const unsigned char* cuda_neuron_device_spiked(const CudaNeuron* state);
+real* cuda_neuron_device_exc_input(CudaNeuron* state);
+real* cuda_neuron_device_inh_input(CudaNeuron* state);
+real* cuda_neuron_device_sic(CudaNeuron* state);
+
 }  // namespace astrosimgpu

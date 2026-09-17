@@ -244,4 +244,20 @@ void cuda_neuron_update(CudaNeuron* s, real h_step, int substeps, real dt, std::
     CUDA_CHECK(cudaGetLastError());
 }
 
+const unsigned char* cuda_neuron_device_spiked(const CudaNeuron* s) {
+    return s == nullptr ? nullptr : s->spiked;
+}
+
+real* cuda_neuron_device_exc_input(CudaNeuron* s) {
+    return s == nullptr ? nullptr : s->exc_input;
+}
+
+real* cuda_neuron_device_inh_input(CudaNeuron* s) {
+    return s == nullptr ? nullptr : s->inh_input;
+}
+
+real* cuda_neuron_device_sic(CudaNeuron* s) {
+    return s == nullptr ? nullptr : s->I_sic;
+}
+
 }  // namespace astrosimgpu

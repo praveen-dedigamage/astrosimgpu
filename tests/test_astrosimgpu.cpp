@@ -244,6 +244,29 @@ void test_sic_threshold() {
     check_close(pop.sic_factor(0), 0.0, 0.0, "no SIC below threshold");
 }
 
+void test_astro_sic_factor_kernel() {
+    // astro_sic_factor is the free function both the host sic_factor and the
+    // CUDA deliver_sic kernel call -- test_sic_threshold above only checks
+    // the below-threshold zero case (through the wiring); this checks the
+    // above-threshold formula directly against a hand-computed value, same
+    // rationale as test_astro_kernel/test_neuron_kernel.
+    const real SIC_th = 0.19669;
+    const real SIC_scale = 1.0;
+
+    check_close(astro_sic_factor(SIC_th, SIC_th, SIC_scale), 0.0, 0.0,
+                "kernel gives zero exactly at threshold");
+
+    // y = (Ca - SIC_th) * 1000 = 10 -> SIC_scale * ln(10).
+    const real Ca = SIC_th + 0.01;
+    const real expected = SIC_scale * std::log(10.0);
+    check_close(astro_sic_factor(Ca, SIC_th, SIC_scale), expected, 1e-9,
+                "kernel matches SIC_scale * ln((Ca - SIC_th) * 1000) above threshold");
+
+    // Scaling SIC_scale must scale the output linearly.
+    check_close(astro_sic_factor(Ca, SIC_th, 2.0), 2.0 * expected, 1e-9,
+                "kernel scales linearly with SIC_scale");
+}
+
 void test_neuron_kernel() {
     // The kernel is the code the CUDA path runs. Check it against the
     // properties the population-level tests below cover, but called
@@ -595,6 +618,40 @@ void test_astro_out_degree_cap() {
     }
 }
 
+void test_synapse_stp_weight_kernel() {
+    // synapse_stp_weight is the free function Network::stp_weight and the
+    // CUDA deliver_spikes/deliver_sic kernels all call -- check it directly
+    // against hand-computed values, same rationale as test_astro_kernel.
+    const real weight = 3.0;
+    const real U = 0.5;
+    const real tau_rec = 800.0;
+    const real tau_fac = 0.0;  // pure depression, matches StpParams' NEST default
+
+    // enabled=false must pass the weight through unchanged and never touch
+    // x/u/t_last -- canary values prove that, not just infer it.
+    {
+        real x = 12345.0, u = 12345.0, t_last = 12345.0;
+        const real w = synapse_stp_weight(false, weight, U, tau_rec, tau_fac, 0.0, x, u, t_last);
+        check_close(w, weight, 0.0, "disabled STP returns the weight unchanged");
+        check(x == 12345.0 && u == 12345.0 && t_last == 12345.0,
+              "disabled STP never touches x/u/t_last");
+    }
+
+    // enabled=true, first call from far in the past: x/u decay fully toward
+    // their resting values (x=1, u=U before facilitation), so the first
+    // release is weight * U -- the NEST tsodyks_synapse first-spike result.
+    real x = 1.0, u = U, t_last = -1.0e6;
+    const real w1 = synapse_stp_weight(true, weight, U, tau_rec, tau_fac, 0.0, x, u, t_last);
+    check_close(w1, weight * U, 1e-9, "first release after a long silence is weight * U");
+    check_close(t_last, 0.0, 0.0, "t_last is updated to the call's t_now");
+
+    // Second call at the same instant (dt=0): x_decay=1, so x drops by
+    // exactly u (depression), while u is unaffected (tau_fac=0).
+    const real w2 = synapse_stp_weight(true, weight, U, tau_rec, tau_fac, 0.0, x, u, t_last);
+    check_close(w2, weight * (1.0 - U) * U, 1e-9,
+                "immediate second release reflects depression from the first");
+}
+
 // Network::build() is checked for reproducibility above (test_network_build);
 // this checks Network::run() itself, which build() never touches. Several
 // per-step phases run under #pragma omp parallel for (drive_astrocytes,
@@ -827,12 +884,14 @@ int main() {
         {"astrocyte IP3 decay", test_astrocyte_ip3_decay},
         {"astrocyte kernel", test_astro_kernel},
         {"SIC threshold", test_sic_threshold},
+        {"astro SIC factor kernel", test_astro_sic_factor_kernel},
         {"neuron kernel", test_neuron_kernel},
         {"neuron rest and spiking", test_neuron_rest_and_spiking},
         {"alpha conductance", test_alpha_conductance},
         {"analysis", test_analysis},
         {"network build", test_network_build},
         {"astro out-degree cap", test_astro_out_degree_cap},
+        {"synapse STP weight kernel", test_synapse_stp_weight_kernel},
         {"run reproducibility", test_run_reproducibility},
         {"thread count invariance", test_thread_count_invariance},
     };

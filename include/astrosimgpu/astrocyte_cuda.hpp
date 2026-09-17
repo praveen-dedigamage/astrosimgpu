@@ -34,4 +34,12 @@ void cuda_astro_update(CudaAstro* state, const AstroConstants& c, real h_step, i
                        real noise_std, bool independent_noise, real shared_noise,
                        std::uint64_t noise_seed, std::uint64_t noise_index);
 
+// Deliberate crack in the opacity above: the Stage 4 delivery kernels
+// (network_cuda.cu) read calcium and write ip3_input directly on the device,
+// so they need the raw pointers CudaAstro already owns -- no new state, no
+// new transfer, just skipping the host round trip these two values used to
+// need for deliver_sic/apply_arrivals.
+const real* cuda_astro_device_calcium(const CudaAstro* state);
+real* cuda_astro_device_ip3_input(CudaAstro* state);
+
 }  // namespace astrosimgpu

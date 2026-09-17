@@ -102,6 +102,21 @@ ASTROSIMGPU_FN void astro_advance(const AstroConstants& c, real Ca_tot, real IP3
     }
 }
 
+// Unitless SIC activation from calcium, extracted from
+// AstrocytePopulation::sic_factor so the host path and the CUDA deliver_sic
+// kernel call the same function. Named distinctly from sic_factor for the
+// same class-scope-hiding reason as synapse_stp_weight (see
+// network_kernel.hpp). State is uM, threshold in nM, hence the 1000.
+// Nothing is emitted until the excess exceeds 1 nM, where ln y turns
+// positive.
+ASTROSIMGPU_FN real astro_sic_factor(real Ca, real SIC_th, real SIC_scale) {
+    const real y = (Ca - SIC_th) * 1000.0;
+    if (y <= 1.0) {
+        return 0.0;
+    }
+    return SIC_scale * std::log(y);
+}
+
 #ifdef ASTROSIMGPU_OFFLOAD
 #pragma omp end declare target
 #endif

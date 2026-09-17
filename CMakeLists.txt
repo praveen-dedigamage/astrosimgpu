@@ -92,7 +92,7 @@ if(ASTROSIMGPU_CUDA)
     # 90 is Hopper, which is what a GH200 is. Override for other hardware.
     set(CMAKE_CUDA_ARCHITECTURES 90)
   endif()
-  target_sources(astrosimgpu_core PRIVATE src/astrocyte_cuda.cu src/neuron_cuda.cu)
+  target_sources(astrosimgpu_core PRIVATE src/astrocyte_cuda.cu src/neuron_cuda.cu src/network_cuda.cu)
   if(ASTROSIMGPU_NEURON_MAXREGCOUNT GREATER 0)
     set_source_files_properties(src/neuron_cuda.cu PROPERTIES
         COMPILE_OPTIONS "--maxrregcount=${ASTROSIMGPU_NEURON_MAXREGCOUNT}")

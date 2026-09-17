@@ -44,6 +44,16 @@ public:
     // accumulates. Only cells with an incoming connection can be non-zero.
     void clear_inputs(const vec<index_t>& cells);
 
+#if defined(ASTROSIMGPU_CUDA)
+    // Raw device pointers for Network's Stage 4 delivery kernels, which read
+    // calcium and write ip3_input directly on the device rather than
+    // bouncing through the host every step. No-op accessors elsewhere would
+    // make no sense (there is no device pointer to hand back), so these only
+    // exist under CUDA -- callers are themselves CUDA-only code paths.
+    [[nodiscard]] const real* device_calcium() const { return cuda_astro_device_calcium(cuda_); }
+    [[nodiscard]] real* device_ip3_input() { return cuda_astro_device_ip3_input(cuda_); }
+#endif
+
     // `step` seeds the noise, so a run is reproducible from its seed.
     void update(const TimeGrid& time, std::int64_t step, std::uint64_t seed);
 

@@ -48,7 +48,21 @@ public:
     void set_sic(index_t cell, real current) { I_sic_[cell] = current; }
 
     /// Advance one communication step and append emitted spikes to `out`.
-    void update(const TimeGrid& time, std::int64_t step, std::uint64_t seed, vec<Spike>& out);
+    /// `inputs_on_device`: true when the caller (Network's Stage 4 CUDA
+    /// delivery path) has already written this step's exc/inh/SIC drive
+    /// directly into the device-resident buffers (see
+    /// cuda_delivery_apply_arrivals in network_cuda.hpp); the usual
+    /// cuda_neuron_push_input is skipped in that case, since it would
+    /// stomp those writes with the stale host mirrors. Default false keeps
+    /// every other backend's existing push-every-step behaviour.
+    /// `pull_spikes`: whether to copy the device spike-flag array back to
+    /// the host and append Spike entries to `out`. Stage 4's own
+    /// deliver_spikes kernel reads the device flags directly and needs no
+    /// host copy at all; the pull only has to happen when the caller still
+    /// needs individual Spike entries (e.g. spikes.csv). Default true keeps
+    /// every other backend's existing pull-every-step behaviour.
+    void update(const TimeGrid& time, std::int64_t step, std::uint64_t seed, vec<Spike>& out,
+                bool inputs_on_device = false, bool pull_spikes = true);
 
     // Device residency. No-ops in a host build. Keeping the state on the
     // device makes the per-step map clauses free, so only the synaptic input
@@ -61,6 +75,19 @@ public:
     // called from there.
     void device_begin();
     void device_end();
+
+#if defined(ASTROSIMGPU_CUDA)
+    // Raw device pointers for Network's Stage 4 delivery kernels: deliver_spikes
+    // reads the spike flags directly (no host round trip), and apply_arrivals
+    // writes the per-step drive directly, both on the device. CUDA-only,
+    // since there is no device pointer to hand back on any other backend.
+    [[nodiscard]] const unsigned char* device_spiked() const {
+        return cuda_neuron_device_spiked(cuda_);
+    }
+    [[nodiscard]] real* device_exc_input() { return cuda_neuron_device_exc_input(cuda_); }
+    [[nodiscard]] real* device_inh_input() { return cuda_neuron_device_inh_input(cuda_); }
+    [[nodiscard]] real* device_sic() { return cuda_neuron_device_sic(cuda_); }
+#endif
 
     [[nodiscard]] index_t size() const { return static_cast<index_t>(V_.size()); }
     [[nodiscard]] index_t exc_count() const { return exc_count_; }

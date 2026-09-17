@@ -343,13 +343,7 @@ void AstrocytePopulation::update(const TimeGrid& time, std::int64_t step, std::u
 }
 
 real AstrocytePopulation::sic_factor(index_t cell) const {
-    // State is uM, threshold in nM, hence the 1000. Nothing is emitted until
-    // the excess exceeds 1 nM, where ln y turns positive.
-    const real y = (Ca_[cell] - p_.SIC_th) * 1000.0;
-    if (y <= 1.0) {
-        return 0.0;
-    }
-    return p_.SIC_scale * std::log(y);
+    return astro_sic_factor(Ca_[cell], p_.SIC_th, p_.SIC_scale);
 }
 
 }  // namespace astrosimgpu

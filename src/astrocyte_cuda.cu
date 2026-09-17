@@ -187,4 +187,12 @@ void cuda_astro_drive_input(CudaAstro* s, std::uint64_t seed, std::int64_t step,
     CUDA_CHECK(cudaGetLastError());
 }
 
+const real* cuda_astro_device_calcium(const CudaAstro* s) {
+    return s == nullptr ? nullptr : s->Ca;
+}
+
+real* cuda_astro_device_ip3_input(CudaAstro* s) {
+    return s == nullptr ? nullptr : s->ip3_input;
+}
+
 }  // namespace astrosimgpu
