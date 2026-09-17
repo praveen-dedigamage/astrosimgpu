@@ -35,6 +35,15 @@
 #
 #   sbatch --export=ALL,ASTRO=100000 scripts/roihu/ncu_profile.sbatch
 #
+# Override which kernel(s) get profiled (default: astro, matching the astro
+# kernels this script was written for). KERNEL is an ncu -k regex, so it
+# matches by substring against the kernel's name -- "neuron" catches
+# neuron_update_kernel, "astro" catches astro_update_kernel and
+# astro_drive_kernel, "astro|neuron" catches all three in one run:
+#
+#   sbatch --export=ALL,CONFIG=config/neuron_scale_10000000.json,ASTRO="",KERNEL=neuron \
+#       scripts/roihu/ncu_profile.sbatch
+#
 # The full report (astro_kernel.ncu-rep, tens of MB) is not printed here --
 # copy it off Roihu and open it in the Nsight Compute GUI for the guided
 # analysis (it points at the specific stall/occupancy issue, section by
@@ -89,6 +98,7 @@ CONFIG=${CONFIG:-config/kernel_scaling.json}
 ASTRO=${ASTRO-1000000}
 SIM=${SIM:-2}
 PRE=${PRE:-1}
+KERNEL=${KERNEL:-astro}
 OUT=${OUT:-astro_kernel_${SLURM_JOB_ID:-local}}
 ASTRO_FLAGS=()
 if [[ -n "$ASTRO" ]]; then
@@ -96,6 +106,7 @@ if [[ -n "$ASTRO" ]]; then
 fi
 
 echo "config : $CONFIG ${ASTRO_FLAGS[*]} -t $SIM -p $PRE"
+echo "kernel : regex:$KERNEL"
 echo "report : $PWD/${OUT}.ncu-rep"
 echo
 
@@ -103,7 +114,7 @@ mkdir -p /tmp/ncu.$$
 
 # srun (CSC's documented pattern for this cluster) wraps the whole ncu
 # invocation; ncu launches the target binary as its child.
-PYTHONNOUSERSITE=1 srun --export=ALL ncu --set full -k regex:astro -o "$OUT" --force-overwrite \
+PYTHONNOUSERSITE=1 srun --export=ALL ncu --set full -k "regex:$KERNEL" -o "$OUT" --force-overwrite \
     --print-summary per-kernel \
     "$BIN" --config "$CONFIG" "${ASTRO_FLAGS[@]}" \
     -t "$SIM" -p "$PRE" -o "/tmp/ncu.$$"
