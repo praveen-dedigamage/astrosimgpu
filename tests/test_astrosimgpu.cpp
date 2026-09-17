@@ -675,20 +675,30 @@ void test_run_reproducibility() {
 
 // Complements test_run_reproducibility: that test checks the same thread
 // count is deterministic run to run; this checks that thread count itself
-// does not change the result -- the direct test for "does the OMP-parallel
-// code compute the same thing the original serial code did", not just "is
-// the current code self-consistent". drive_astrocytes and apply_arrivals
-// write only to their own loop index with no cross-iteration dependency or
-// shared accumulator, so those two would be bit-identical for any thread
-// count on their own. deliver_spikes is different: it scatter-adds into
-// shared ring-buffer slots via atomics, so accumulation order (and the
-// exact floating-point result) does depend on thread count, and a spiking
-// neuron's threshold crossing can amplify a ULP-level difference into a
-// shifted spike. So the check below is a tolerance on spike count, not
-// exact equality -- see the comment at the check itself. omp_set_num_threads
-// affects every #pragma omp region encountered afterward, including
-// neurons_.update()'s own parallel loop, so this incidentally covers that
-// too, not just this session's changes.
+// does not bias the result. drive_astrocytes and apply_arrivals write only
+// to their own loop index, so they cannot introduce any thread-count
+// dependence. deliver_spikes and deliver_sic scatter-add into shared
+// ring-buffer slots via atomics: correct (no lost updates), but the
+// accumulation order -- and so the exact floating-point result -- can
+// depend on thread scheduling, and a spiking neuron's threshold crossing
+// can amplify a ULP-level difference into a shifted spike. That is expected
+// and not a bug, so a single-run exact- or tolerance-comparison is the
+// wrong tool here: whether one pair of runs happens to match is a question
+// about that pair, not about whether thread count biases the model.
+//
+// What actually matters scientifically is whether the *distribution* of
+// outcomes differs between thread counts -- the same bar the model's own
+// statistical properties (firing rate, synchrony) are validated against,
+// not bit-exact reproducibility of one trajectory. This runs many
+// independent trials (different seeds) at 1 thread and at max threads and
+// runs a permutation test on the two samples of spike counts: pool both
+// samples, repeatedly reshuffle which values belong to which group, and see
+// how often a random reshuffle produces a mean difference at least as large
+// as the one actually observed. A permutation test is used instead of a
+// t-test so no assumption about the sampling distribution (normality, equal
+// variance) is needed -- appropriate here since spike counts are bounded
+// counts, not naturally Gaussian. CounterRng drives the shuffling so the
+// test itself is reproducible.
 void test_thread_count_invariance() {
 #ifndef _OPENMP
     // No OpenMP in this build: the pragmas are no-ops, so thread count
@@ -705,7 +715,6 @@ void test_thread_count_invariance() {
     cfg.conn.p_third_if_primary = 0.3;
     cfg.conn.pool_size = 3;
     cfg.conn.pool_type = PoolType::Random;
-    cfg.seed = 42;
     cfg.neuron_exc.I_e = 900.0;
     cfg.neuron_inh.I_e = 900.0;
     cfg.input_exc.poiss_rate = 2700.0;
@@ -715,48 +724,92 @@ void test_thread_count_invariance() {
     cfg.input_astro.poiss_rate = 3.0;
     cfg.input_astro.poiss_weight = 1.0;
 
-    const std::string base =
-        (std::filesystem::temp_directory_path() / "astrosimgpu_thread_test").string();
-    const std::string dir_1 = base + "_1";
-    const std::string dir_n = base + "_n";
     const int max_threads = omp_get_max_threads();
-
-    auto run_with_threads = [&](const std::string& out_dir, int threads) {
-        omp_set_num_threads(threads);
-        Network net(cfg);
-        net.build();
-        Recorder recorder(out_dir, /*spikes=*/true, /*astro=*/false, /*neuron=*/false);
-        net.run(recorder);
-        return recorder.spike_count();
-    };
-
-    const std::size_t count_1 = run_with_threads(dir_1, 1);
-    const std::size_t count_n = run_with_threads(dir_n, max_threads);
-    omp_set_num_threads(max_threads);  // restore, so later tests are unaffected
-
     check(max_threads > 1, "thread-count test actually varies thread count (max_threads=" +
                                std::to_string(max_threads) + ") -- otherwise it proves nothing");
-    check(count_1 > 0, "thread-count check config actually produces spikes");
 
-    // deliver_spikes scatter-adds into shared ring-buffer slots via atomics,
-    // so accumulation order -- and therefore the exact floating-point result
-    // -- depends on thread count. That's expected, not a bug: a spiking
-    // neuron's threshold crossing is sensitive enough to ULP-level
-    // differences to shift a spike by a step, so bit-identical output can no
-    // longer hold now that a reduction-style parallel section exists.
-    // Compare spike counts within a tolerance instead of requiring a match.
-    const double diff_pct = std::abs(static_cast<double>(count_n) -
-                                      static_cast<double>(count_1)) /
-                             static_cast<double>(count_1) * 100.0;
-    check(diff_pct < 5.0,
-          "1 thread and " + std::to_string(max_threads) +
-              " threads produce spike counts within tolerance (" + std::to_string(count_1) +
-              " vs " + std::to_string(count_n) + ", " + std::to_string(diff_pct) +
-              "% difference)");
+    const std::string dir =
+        (std::filesystem::temp_directory_path() / "astrosimgpu_thread_stats").string();
+
+    auto spike_count_for = [&](std::uint64_t seed, int threads) {
+        omp_set_num_threads(threads);
+        ModelConfig trial = cfg;
+        trial.seed = seed;
+        Network net(trial);
+        net.build();
+        // Reused every trial: only the in-memory count is read, and the
+        // constructor truncates the file, so nothing leaks between trials.
+        Recorder recorder(dir, /*spikes=*/true, /*astro=*/false, /*neuron=*/false);
+        net.run(recorder);
+        return static_cast<double>(recorder.spike_count());
+    };
+
+    constexpr int trials_per_group = 20;
+    vec<double> counts_1(trials_per_group), counts_n(trials_per_group);
+    for (int i = 0; i < trials_per_group; ++i) {
+        // Distinct seeds per trial, and the same seeds across both groups,
+        // so the two samples differ only in thread count, not in which
+        // network instances were drawn.
+        const std::uint64_t seed = 1000 + static_cast<std::uint64_t>(i);
+        counts_1[static_cast<std::size_t>(i)] = spike_count_for(seed, 1);
+        counts_n[static_cast<std::size_t>(i)] = spike_count_for(seed, max_threads);
+    }
+    omp_set_num_threads(max_threads);  // restore, so later tests are unaffected
 
     std::error_code ec;
-    std::filesystem::remove_all(dir_1, ec);
-    std::filesystem::remove_all(dir_n, ec);
+    std::filesystem::remove_all(dir, ec);
+
+    auto mean_of = [](const vec<double>& v) {
+        double sum = 0.0;
+        for (double x : v) {
+            sum += x;
+        }
+        return sum / static_cast<double>(v.size());
+    };
+
+    check(mean_of(counts_1) > 0.0, "thread-count check config actually produces spikes");
+
+    const double observed = std::abs(mean_of(counts_n) - mean_of(counts_1));
+
+    vec<double> pooled;
+    pooled.reserve(counts_1.size() + counts_n.size());
+    pooled.insert(pooled.end(), counts_1.begin(), counts_1.end());
+    pooled.insert(pooled.end(), counts_n.begin(), counts_n.end());
+    const std::size_t half = counts_1.size();
+
+    constexpr int permutations = 2000;
+    int at_least_as_extreme = 0;
+    CounterRng shuffle_rng(0xA5A5A5A5U, 1);
+    vec<double> shuffled = pooled;
+    for (int p = 0; p < permutations; ++p) {
+        // Fisher-Yates over the pooled sample. uniform() in [0, 1) times
+        // (i + 1), truncated, is always in [0, i], so j never exceeds i.
+        for (std::size_t i = shuffled.size(); i-- > 1;) {
+            const auto j = static_cast<std::size_t>(shuffle_rng.uniform() *
+                                                     static_cast<double>(i + 1));
+            std::swap(shuffled[i], shuffled[j]);
+        }
+        double sum_a = 0.0, sum_b = 0.0;
+        for (std::size_t i = 0; i < shuffled.size(); ++i) {
+            (i < half ? sum_a : sum_b) += shuffled[i];
+        }
+        const double mean_a = sum_a / static_cast<double>(half);
+        const double mean_b = sum_b / static_cast<double>(shuffled.size() - half);
+        if (std::abs(mean_b - mean_a) >= observed) {
+            ++at_least_as_extreme;
+        }
+    }
+    // +1/+1: the observed assignment is itself one of the permutations, so
+    // this can never report an impossible p = 0.
+    const double p_value = static_cast<double>(at_least_as_extreme + 1) /
+                            static_cast<double>(permutations + 1);
+
+    check(p_value > 0.05,
+          "1 thread and " + std::to_string(max_threads) +
+              " threads produce spike-count distributions with no significant difference "
+              "(p = " + std::to_string(p_value) + ", mean " + std::to_string(mean_of(counts_1)) +
+              " vs " + std::to_string(mean_of(counts_n)) + " over " +
+              std::to_string(trials_per_group) + " trials each)");
 #endif
 }
 
