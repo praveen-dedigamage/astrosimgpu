@@ -7,10 +7,6 @@
 #include <sstream>
 #include <unordered_set>
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
 // Labels the phases below on the nsys timeline. Header-only in NVTX v3 --
 // nothing to link -- so this only needs the include path, wired in
 // CMakeLists.txt for the CUDA build. A no-op everywhere else, so the default
@@ -367,91 +363,39 @@ void Network::deliver_spikes(const vec<Spike> &spikes, std::int64_t step) {
   const auto n_spikes = static_cast<std::int64_t>(spikes.size());
 
   // Each spike's synapse range is exclusive to its source, so stp_weight's
-  // per-synapse state is race-free across threads. Different sources CAN
-  // share a target, though. Atomics used to handle that, but their
-  // accumulation order isn't guaranteed -- floating-point addition isn't
-  // associative, so the result depended on real-time thread scheduling, not
-  // just the input. Staging each thread's contributions in its own buffer
-  // and merging them afterward in a fixed order (thread 0's, then thread
-  // 1's, ...) removes that: no atomics, no scheduling-dependent result. With
-  // schedule(static) the iteration range splits into contiguous per-thread
-  // blocks in thread-index order, so this merge reconstructs the exact term
-  // order a single serial loop over `spikes` would use -- the result is
-  // therefore identical for any thread count, not just repeatable at a fixed
-  // one.
-  #pragma omp parallel
-  {
-#ifdef _OPENMP
-    #pragma omp single
-    {
-      const std::size_t nt = static_cast<std::size_t>(omp_get_num_threads());
-      exc_deltas_.resize(nt);
-      astro_deltas_.resize(nt);
-      inh_deltas_.resize(nt);
-    }
-    const int tid = omp_get_thread_num();
-#else
-    exc_deltas_.resize(1);
-    astro_deltas_.resize(1);
-    inh_deltas_.resize(1);
-    const int tid = 0;
-#endif
-    vec<RingDelta> &exc_local = exc_deltas_[static_cast<std::size_t>(tid)];
-    vec<RingDelta> &astro_local = astro_deltas_[static_cast<std::size_t>(tid)];
-    vec<RingDelta> &inh_local = inh_deltas_[static_cast<std::size_t>(tid)];
-    exc_local.clear();
-    astro_local.clear();
-    inh_local.clear();
-
-    #pragma omp for schedule(static)
-    for (std::int64_t idx = 0; idx < n_spikes; ++idx) {
-      const Spike &s = spikes[idx];
-      if (s.source < n_exc) {
-        const index_t src = s.source;
-        for (index_t k = exc_primary_.row_start[src];
-             k < exc_primary_.row_start[src + 1]; ++k) {
-          const int slot = static_cast<int>((step + exc_primary_.delay_steps[k]) %
-                                            ring_slots_);
-          exc_local.push_back({slot, exc_primary_.target[k], stp_weight(exc_primary_, k, t_now)});
-        }
-        for (index_t k = neuron_astro_.row_start[src];
-             k < neuron_astro_.row_start[src + 1]; ++k) {
-          const int slot = static_cast<int>(
-              (step + neuron_astro_.delay_steps[k]) % ring_slots_);
-          astro_local.push_back(
-              {slot, neuron_astro_.target[k], stp_weight(neuron_astro_, k, t_now)});
-        }
-      } else {
-        const index_t src = s.source - n_exc;
-        for (index_t k = inh_primary_.row_start[src];
-             k < inh_primary_.row_start[src + 1]; ++k) {
-          const int slot = static_cast<int>((step + inh_primary_.delay_steps[k]) % ring_slots_);
-          // Weights are negative; the ring stores magnitudes, so the sign
-          // flip happens at merge time below (see the `-=` there), same as
-          // the direct write this replaced.
-          inh_local.push_back({slot, inh_primary_.target[k], stp_weight(inh_primary_, k, t_now)});
-        }
+  // per-synapse state is race-free across threads. Different sources can
+  // share a target, though, so the ring writes below need atomics.
+  #pragma omp parallel for schedule(static)
+  for (std::int64_t idx = 0; idx < n_spikes; ++idx) {
+    const Spike &s = spikes[idx];
+    if (s.source < n_exc) {
+      const index_t src = s.source;
+      for (index_t k = exc_primary_.row_start[src];
+           k < exc_primary_.row_start[src + 1]; ++k) {
+        const int slot = static_cast<int>((step + exc_primary_.delay_steps[k]) %
+                                          ring_slots_);
+        const real w = stp_weight(exc_primary_, k, t_now);
+        #pragma omp atomic update
+        ring_exc_[slot][exc_primary_.target[k]] += w;
       }
-    }
-  }  // implicit barrier: every thread's buffer is complete past this point
-
-  // Serial on purpose -- this is what makes the result order-independent.
-  // Each inner loop is itself in-order (push_back preserves the spikes-loop
-  // order within a thread), so thread 0's block fully precedes thread 1's,
-  // exactly like a plain sequential loop over `spikes` would.
-  for (const vec<RingDelta> &bucket : exc_deltas_) {
-    for (const RingDelta &d : bucket) {
-      ring_exc_[static_cast<std::size_t>(d.slot)][d.target] += d.value;
-    }
-  }
-  for (const vec<RingDelta> &bucket : astro_deltas_) {
-    for (const RingDelta &d : bucket) {
-      ring_astro_[static_cast<std::size_t>(d.slot)][d.target] += d.value;
-    }
-  }
-  for (const vec<RingDelta> &bucket : inh_deltas_) {
-    for (const RingDelta &d : bucket) {
-      ring_inh_[static_cast<std::size_t>(d.slot)][d.target] -= d.value;
+      for (index_t k = neuron_astro_.row_start[src];
+           k < neuron_astro_.row_start[src + 1]; ++k) {
+        const int slot = static_cast<int>(
+            (step + neuron_astro_.delay_steps[k]) % ring_slots_);
+        const real w = stp_weight(neuron_astro_, k, t_now);
+        #pragma omp atomic update
+        ring_astro_[slot][neuron_astro_.target[k]] += w;
+      }
+    } else {
+      const index_t src = s.source - n_exc;
+      for (index_t k = inh_primary_.row_start[src];
+           k < inh_primary_.row_start[src + 1]; ++k) {
+        const int slot = static_cast<int>((step + inh_primary_.delay_steps[k]) % ring_slots_);
+        const real w = stp_weight(inh_primary_, k, t_now);
+        // Weights are negative; the ring stores magnitudes.
+        #pragma omp atomic update
+        ring_inh_[slot][inh_primary_.target[k]] -= w;
+      }
     }
   }
 }
