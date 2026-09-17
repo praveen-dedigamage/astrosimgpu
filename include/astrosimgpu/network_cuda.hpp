@@ -8,8 +8,8 @@
 
 namespace astrosimgpu {
 
-// Narrow and free of CUDA types, so only network_cuda.cu goes through nvcc.
-// Owns the delivery-phase resident state Stage 4 adds: the four
+// Narrow and free of CUDA types, so only src/cuda_kernels.cu goes through
+// nvcc. Owns the delivery-phase resident state Stage 4 adds: the four
 // ConnectionSets' CSR arrays, the four ring buffers, and the two precomputed
 // index lists (sic_sources_, astro_input_sinks_) -- everything Network::build()
 // already computes once and previously kept host-side. It does NOT own

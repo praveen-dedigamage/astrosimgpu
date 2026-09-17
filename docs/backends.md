@@ -90,7 +90,8 @@ cmake --build build-cuda -j
 ```
 
 `CMAKE_CUDA_ARCHITECTURES` defaults to 90, which is Hopper and therefore a
-GH200. Only `src/astrocyte_cuda.cu` goes through nvcc; the rest of the
+GH200. Only `src/cuda_kernels.cu` (every `__global__` kernel: astrocyte,
+neuron, and the delivery pipeline) goes through nvcc; the rest of the
 simulator is compiled by the host compiler as usual.
 
 The kernel launches 128 threads per block, matching the geometry the OpenMP

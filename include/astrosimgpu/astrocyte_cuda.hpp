@@ -7,9 +7,10 @@
 
 namespace astrosimgpu {
 
-// Narrow and free of CUDA types, so only astrocyte_cuda.cu goes through nvcc.
-// The four movement points match the other device backends exactly; had they
-// differed, comparing the backends would measure the transfer pattern.
+// Narrow and free of CUDA types, so only src/cuda_kernels.cu goes through
+// nvcc. The four movement points match the other device backends exactly;
+// had they differed, comparing the backends would measure the transfer
+// pattern.
 struct CudaAstro;
 
 CudaAstro* cuda_astro_create(index_t n, const real* Ca, const real* IP3, const real* h,
@@ -35,7 +36,8 @@ void cuda_astro_update(CudaAstro* state, const AstroConstants& c, real h_step, i
                        std::uint64_t noise_seed, std::uint64_t noise_index);
 
 // Deliberate crack in the opacity above: the Stage 4 delivery kernels
-// (network_cuda.cu) read calcium and write ip3_input directly on the device,
+// (also in src/cuda_kernels.cu) read calcium and write ip3_input directly
+// on the device,
 // so they need the raw pointers CudaAstro already owns -- no new state, no
 // new transfer, just skipping the host round trip these two values used to
 // need for deliver_sic/apply_arrivals.

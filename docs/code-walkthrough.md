@@ -430,7 +430,7 @@ every case; only the construct around it changes:
 | host | `#pragma omp parallel for schedule(static)` |
 | OpenMP target | `#pragma omp target teams distribute parallel for` |
 | Kokkos | `Kokkos::parallel_for` |
-| native CUDA | `astro_update_kernel<<<grid, 128>>>` in `astrocyte_cuda.cu` |
+| native CUDA | `astro_update_kernel<<<grid, 128>>>` in `src/cuda_kernels.cu` |
 
 The block size of 128 is not arbitrary: it is what the OpenMP target compiler
 chose for the same loop, so neither route is handed an advantage in a

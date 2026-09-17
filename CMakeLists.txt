@@ -21,24 +21,6 @@ option(ASTROSIMGPU_KOKKOS "Run the astrocyte update through Kokkos" OFF)
 # Native CUDA, as the reference point the two portable routes are measured
 # against. Also mutually exclusive with them.
 option(ASTROSIMGPU_CUDA "Run the astrocyte update through native CUDA" OFF)
-# neuron_update_kernel compiles to 122 registers/thread (measured with ncu),
-# well above astro_update_kernel's 94, and is occupancy-limited as a result.
-# 0 (default) leaves the register count to the compiler, unchanged from
-# today. A positive value passes -maxrregcount=N to nvcc for that one file
-# only, trading register budget for more resident warps per SM.
-#
-# Tried on Roihu at N=10,000,000: both 96 and 110 (ncu, --set full) showed
-# "L1TEX Local Load/Store Access Pattern" warnings -- i.e. register spilling
-# -- and neither beat the uncapped baseline's ~1.36ms/launch (96 measured
-# ~1.42-1.44ms, 110 ~1.37-1.41ms). The kernel's live state (7 state
-# variables, the RK4 stage intermediates, CellParams) genuinely needs close
-# to 122 registers; there is no compiler slack here to reclaim this way. A
-# real improvement would mean restructuring the kernel (e.g. spreading the
-# RK4 stages across a warp), not capping registers post hoc. Left here
-# rather than removed so the finding -- and the tool to re-check it if the
-# kernel's shape changes -- aren't lost.
-set(ASTROSIMGPU_NEURON_MAXREGCOUNT 0 CACHE STRING
-    "Cap registers/thread for neuron_update_kernel via nvcc -maxrregcount (0 = compiler default; see comment above -- 96 and 110 both regressed on Roihu)")
 
 add_library(astrosimgpu_core
   src/astrocyte.cpp
@@ -92,12 +74,10 @@ if(ASTROSIMGPU_CUDA)
     # 90 is Hopper, which is what a GH200 is. Override for other hardware.
     set(CMAKE_CUDA_ARCHITECTURES 90)
   endif()
-  target_sources(astrosimgpu_core PRIVATE src/astrocyte_cuda.cu src/neuron_cuda.cu src/network_cuda.cu)
-  if(ASTROSIMGPU_NEURON_MAXREGCOUNT GREATER 0)
-    set_source_files_properties(src/neuron_cuda.cu PROPERTIES
-        COMPILE_OPTIONS "--maxrregcount=${ASTROSIMGPU_NEURON_MAXREGCOUNT}")
-    message(STATUS "neuron_update_kernel: capped at ${ASTROSIMGPU_NEURON_MAXREGCOUNT} registers/thread")
-  endif()
+  # All device kernels (astrocyte, neuron, and the Stage 4 delivery
+  # pipeline) live in this one translation unit -- see the file header in
+  # cuda_kernels.cu for why they were consolidated.
+  target_sources(astrosimgpu_core PRIVATE src/cuda_kernels.cu)
   target_compile_definitions(astrosimgpu_core PUBLIC ASTROSIMGPU_CUDA)
   set_target_properties(astrosimgpu_core PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
   # network.cpp is compiled by the host compiler, not nvcc, but it needs

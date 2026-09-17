@@ -30,9 +30,11 @@ the top-level `README.md`.
   variable is a separate contiguous array so per-cell updates are unit-stride
   and GPU-coalescable.
 - **Backend dispatch** -- compile-time only (`#if defined(ASTROSIMGPU_CUDA)`
-  etc). `AstrocytePopulation` holds an opaque `CudaAstro*` when built with
-  CUDA; `astrocyte_cuda.hpp` stays free of CUDA types so only
-  `astrocyte_cuda.cu` needs `nvcc`.
+  etc). `AstrocytePopulation`/`NeuronPopulation`/`Network` each hold an opaque
+  `CudaAstro*`/`CudaNeuron*`/`CudaDelivery*` when built with CUDA;
+  `astrocyte_cuda.hpp`/`neuron_cuda.hpp`/`network_cuda.hpp` stay free of CUDA
+  types so only `src/cuda_kernels.cu` (every `__global__` kernel, one
+  translation unit) needs `nvcc`.
 - **`include/astrosimgpu/network.hpp` / `src/network.cpp`** -- `Network` owns
   both populations and four `ConnectionSet`s, builds connectivity once
   (`build()`), then runs the per-step time loop (`run()`).
@@ -167,7 +169,7 @@ latency-bound: 42% of cycles stall on the RK4 stage dependency chain.
 | Host (default) | Complete | No device code, C++17 only |
 | OpenMP target offload | Astrocyte update only | Behind `OFFLOAD=1` build flag |
 | Kokkos | Astrocyte update only | Not yet compiled per repo docs (may be stale -- check current state) |
-| Native CUDA | Astrocyte update only | `ASTROSIMGPU_CUDA=ON`; `astrocyte_cuda.cu` |
+| Native CUDA | Astrocyte update only | `ASTROSIMGPU_CUDA=ON`; `src/cuda_kernels.cu` |
 
 **Neuron update is host-only in every backend.** It's the larger phase in
 almost every configuration (Section 6) -- this is Stage 3 of the roadmap,
