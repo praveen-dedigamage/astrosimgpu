@@ -1,8 +1,13 @@
 #pragma once
 
+#include "astrosimgpu/neuron_kernel.hpp"
 #include "astrosimgpu/parameters.hpp"
 #include "astrosimgpu/rng.hpp"
 #include "astrosimgpu/types.hpp"
+
+#if defined(ASTROSIMGPU_CUDA)
+#include "astrosimgpu/neuron_cuda.hpp"
+#endif
 
 namespace astrosimgpu {
 
@@ -45,6 +50,18 @@ public:
     /// Advance one communication step and append emitted spikes to `out`.
     void update(const TimeGrid& time, std::int64_t step, std::uint64_t seed, vec<Spike>& out);
 
+    // Device residency. No-ops in a host build. Keeping the state on the
+    // device makes the per-step map clauses free, so only the synaptic input
+    // (in) and the spike flags (out) actually move each step. Unlike
+    // AstrocytePopulation, the push/launch/pull sequence has no other host
+    // step in between (nothing needs the spike flags except update() itself,
+    // the way deliver_sic needs calcium pulled ahead of it), so it is all
+    // folded inside update() rather than split into calls Network::run() has
+    // to sequence -- only the once-per-run device_begin/device_end are
+    // called from there.
+    void device_begin();
+    void device_end();
+
     [[nodiscard]] index_t size() const { return static_cast<index_t>(V_.size()); }
     [[nodiscard]] index_t exc_count() const { return exc_count_; }
     [[nodiscard]] bool is_excitatory(index_t cell) const { return cell < exc_count_; }
@@ -54,20 +71,16 @@ public:
     [[nodiscard]] const vec<real>& I_sic() const { return I_sic_; }
 
 private:
-    void derivatives(index_t cell, real V, real w, real g_ex, real g_in, real I_ext, real& dV,
-                     real& dw) const;
-
-    /// Parameters are stored per cell rather than per population: the two
-    /// populations differ in every field, and several fields are randomised.
-    struct CellParams {
-        real C_m, g_L, E_L, V_th, Delta_T, a, b, tau_w;
-        real V_reset, V_peak, t_ref, E_ex, E_in;
-        real tau_syn_ex, tau_syn_in, I_e;
-    };
+#if defined(ASTROSIMGPU_CUDA)
+    CudaNeuron* cuda_ = nullptr;
+#endif
 
     index_t exc_count_ = 0;
     index_t inh_count_ = 0;
 
+    // CellParams is defined in neuron_kernel.hpp: parameters are stored per
+    // cell rather than per population, since the two populations differ in
+    // every field and several fields (V_reset, b) are randomised.
     vec<CellParams> p_;
 
     // State.
@@ -80,6 +93,10 @@ private:
     InputParams input_exc_{}, input_inh_{};
     // Precomputed e / tau_syn for each cell, the alpha-function normalisation.
     vec<real> psc_init_ex_, psc_init_in_;
+
+    // One byte per cell, reused every step by the CUDA path so update() does
+    // not allocate; unused on the host path.
+    vec<unsigned char> spiked_buffer_;
 };
 
 }  // namespace astrosimgpu

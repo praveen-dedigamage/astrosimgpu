@@ -244,6 +244,105 @@ void test_sic_threshold() {
     check_close(pop.sic_factor(0), 0.0, 0.0, "no SIC below threshold");
 }
 
+void test_neuron_kernel() {
+    // The kernel is the code the CUDA path runs. Check it against the
+    // properties the population-level tests below cover, but called
+    // directly, so a regression shows up here rather than a layer up --
+    // same rationale as test_astro_kernel.
+
+    // Isolates the alpha cascade the same way test_alpha_conductance does:
+    // zero everything that would move V except the synaptic conductance,
+    // and never spike, so the peak time pins the psc_init normalisation.
+    {
+        CellParams p{};
+        p.C_m = 281.0;
+        p.g_L = 0.0;
+        p.E_L = -70.6;
+        p.V_th = -50.4;
+        p.Delta_T = 2.0;
+        p.a = 0.0;
+        p.b = 0.0;
+        p.tau_w = 144.0;
+        p.V_reset = -60.0;
+        p.V_peak = 1e9;  // never spike
+        p.t_ref = 0.0;
+        p.E_ex = 0.0;
+        p.E_in = -85.0;
+        p.tau_syn_ex = 2.0;
+        p.tau_syn_in = 2.0;
+        p.I_e = 0.0;
+        const real psc_init_ex = std::exp(1.0) / p.tau_syn_ex;
+
+        real V = -70.6, w = 0.0, g_ex = 0.0, dg_ex = 0.0, g_in = 0.0, dg_in = 0.0;
+        int refractory = 0;
+        const real h_step = 0.01;
+        const real weight = 3.0;
+
+        real peak_drop = 0.0;
+        real peak_time = 0.0;
+        real prev_V = V;
+        for (std::int64_t step = 0; step < 2000; ++step) {
+            const real exc_input = (step == 0) ? weight : 0.0;
+            const bool spiked = neuron_advance(p, h_step, 1, exc_input, 0.0, psc_init_ex, 0.0,
+                                               0.0, V, w, g_ex, dg_ex, g_in, dg_in, refractory);
+            check(!spiked, "kernel with V_peak=1e9 never reports a spike");
+            const real drop = std::abs(V - prev_V);
+            if (drop > peak_drop) {
+                peak_drop = drop;
+                peak_time = static_cast<real>(step) * h_step;
+            }
+            prev_V = V;
+        }
+        check_close(peak_time, p.tau_syn_ex, 0.2, "kernel's alpha conductance peaks at tau_syn");
+    }
+
+    // Isolates the refractory/spike path: a steady current well above
+    // rheobase must make the kernel report a spike and clamp V to V_reset
+    // for t_ref afterwards -- mirrors the driven half of
+    // test_neuron_rest_and_spiking.
+    {
+        CellParams p{};
+        p.C_m = 130.0;
+        p.g_L = 18.0;
+        p.E_L = -58.0;
+        p.V_th = -50.0;
+        p.Delta_T = 2.0;
+        p.a = 4.0;
+        p.b = 300.0;
+        p.tau_w = 450.0;
+        p.V_reset = -50.0;
+        p.V_peak = 0.0;
+        p.t_ref = 2.0;
+        p.E_ex = 0.0;
+        p.E_in = -85.0;
+        p.tau_syn_ex = 2.0;
+        p.tau_syn_in = 2.0;
+        p.I_e = 700.0;
+
+        real V = -58.0, w = 0.0, g_ex = 0.0, dg_ex = 0.0, g_in = 0.0, dg_in = 0.0;
+        int refractory = 0;
+        const real h_step = 0.1 / 4;
+
+        bool spiked_once = false;
+        bool clamped_after_spike = false;
+        for (std::int64_t step = 0; step < 20000 * 4; ++step) {
+            const bool spiked =
+                neuron_advance(p, h_step, 1, 0.0, 0.0, 0.0, 0.0, 0.0, V, w, g_ex, dg_ex, g_in,
+                               dg_in, refractory);
+            if (spiked) {
+                spiked_once = true;
+                check_close(V, p.V_reset, 1e-9, "kernel resets V to V_reset on a spike");
+                check(refractory > 0, "kernel enters refractory on a spike");
+            }
+            if (spiked_once && refractory > 0) {
+                clamped_after_spike = true;
+            }
+        }
+        check(spiked_once, "kernel spikes when driven well above rheobase");
+        check(clamped_after_spike, "kernel's refractory counter engages after a spike");
+    }
+}
+
 void test_neuron_rest_and_spiking() {
     NeuronParams p;
     p.C_m = 130.0;
@@ -675,6 +774,7 @@ int main() {
         {"astrocyte IP3 decay", test_astrocyte_ip3_decay},
         {"astrocyte kernel", test_astro_kernel},
         {"SIC threshold", test_sic_threshold},
+        {"neuron kernel", test_neuron_kernel},
         {"neuron rest and spiking", test_neuron_rest_and_spiking},
         {"alpha conductance", test_alpha_conductance},
         {"analysis", test_analysis},

@@ -43,6 +43,7 @@ void NeuronPopulation::build(index_t exc_count, index_t inh_count, const NeuronP
     inh_input_.assign(total, 0.0);
     psc_init_ex_.resize(total);
     psc_init_in_.resize(total);
+    spiked_buffer_.assign(total, 0);
 
     for (index_t i = 0; i < total; ++i) {
         const NeuronParams& src = (i < exc_count) ? exc : inh;
@@ -82,20 +83,25 @@ void NeuronPopulation::add_synaptic_input(index_t cell, real weight) {
     }
 }
 
-void NeuronPopulation::derivatives(index_t cell, real V, real w, real g_ex, real g_in, real I_ext,
-                                   real& dV, real& dw) const {
-    const CellParams& p = p_[cell];
+void NeuronPopulation::device_begin() {
+#if defined(ASTROSIMGPU_CUDA)
+    if (size() > 0) {
+        cuda_ = cuda_neuron_create(size(), exc_count_, p_.data(), V_.data(), w_.data(),
+                                   g_ex_.data(), dg_ex_.data(), g_in_.data(), dg_in_.data(),
+                                   refractory_steps_.data(), psc_init_ex_.data(),
+                                   psc_init_in_.data());
+    }
+#endif
+}
 
-    // Clamp before the exponential so a neuron that has crossed the peak in
-    // the middle of a substep cannot overflow before the reset is applied.
-    const real Vc = std::min(V, p.V_peak);
-
-    const real I_spike = p.g_L * p.Delta_T * std::exp((Vc - p.V_th) / p.Delta_T);
-    const real I_syn_ex = g_ex * (Vc - p.E_ex);
-    const real I_syn_in = g_in * (Vc - p.E_in);
-
-    dV = (-p.g_L * (Vc - p.E_L) + I_spike - I_syn_ex - I_syn_in - w + p.I_e + I_ext) / p.C_m;
-    dw = (p.a * (Vc - p.E_L) - w) / p.tau_w;
+void NeuronPopulation::device_end() {
+#if defined(ASTROSIMGPU_CUDA)
+    if (cuda_ != nullptr) {
+        cuda_neuron_destroy(cuda_, V_.data(), w_.data(), g_ex_.data(), dg_ex_.data(),
+                            g_in_.data(), dg_in_.data(), refractory_steps_.data());
+        cuda_ = nullptr;
+    }
+#endif
 }
 
 void NeuronPopulation::update(const TimeGrid& time, std::int64_t step, std::uint64_t seed,
@@ -123,6 +129,27 @@ void NeuronPopulation::update(const TimeGrid& time, std::int64_t step, std::uint
         CounterRng r(seed ^ 0xA24BAED4963EE407ULL, noise_index_inh);
         noise_inh = r.normal(0.0, input_inh_.gauss_noise_std);
     }
+
+#if defined(ASTROSIMGPU_CUDA)
+    if (cuda_ != nullptr) {
+        cuda_neuron_push_input(cuda_, exc_input_.data(), inh_input_.data(), I_sic_.data());
+        cuda_neuron_update(cuda_, h_step, time.substeps, dt, seed, step, input_exc_, input_inh_,
+                           noise_exc, noise_index_exc, noise_inh, noise_index_inh);
+        cuda_neuron_pull_spikes(cuda_, spiked_buffer_.data());
+        // The kernel already zeroed the device-side exc_input_/inh_input_
+        // after consuming them; clear the host mirrors the same way the
+        // host loop below does, so a later host build/config toggle sees a
+        // consistent state.
+        std::fill(exc_input_.begin(), exc_input_.end(), 0.0);
+        std::fill(inh_input_.begin(), inh_input_.end(), 0.0);
+        for (index_t cell = 0; cell < n; ++cell) {
+            if (spiked_buffer_[cell]) {
+                out.push_back(Spike{step, cell});
+            }
+        }
+        return;
+    }
+#endif
 
     // Spikes are collected per thread and merged afterwards, then sorted by
     // source, so the emitted order does not depend on how the loop was
@@ -162,79 +189,12 @@ void NeuronPopulation::update(const TimeGrid& time, std::int64_t step, std::uint
                 }
             }
 
-            // Arriving spikes step the alpha cascade.
-            if (exc_input_[cell] != 0.0) {
-                dg_ex_[cell] += exc_input_[cell] * psc_init_ex_[cell];
-                exc_input_[cell] = 0.0;
-            }
-            if (inh_input_[cell] != 0.0) {
-                dg_in_[cell] += inh_input_[cell] * psc_init_in_[cell];
-                inh_input_[cell] = 0.0;
-            }
-
-            real V = V_[cell];
-            real w = w_[cell];
-            real g_ex = g_ex_[cell];
-            real dg_ex = dg_ex_[cell];
-            real g_in = g_in_[cell];
-            real dg_in = dg_in_[cell];
-            bool spiked = false;
-
-            for (int s = 0; s < time.substeps; ++s) {
-                // The conductance cascade is linear and independent of V, so
-                // it is propagated exactly rather than through the RK stages.
-                const real ex_decay = std::exp(-h_step / p.tau_syn_ex);
-                const real in_decay = std::exp(-h_step / p.tau_syn_in);
-                const real g_ex_next = ex_decay * (g_ex + h_step * dg_ex);
-                const real dg_ex_next = ex_decay * dg_ex;
-                const real g_in_next = in_decay * (g_in + h_step * dg_in);
-                const real dg_in_next = in_decay * dg_in;
-
-                if (refractory_steps_[cell] > 0) {
-                    V = p.V_reset;
-                    // Adaptation keeps evolving while the neuron is clamped.
-                    real dV, dw;
-                    derivatives(cell, V, w, g_ex, g_in, I_ext, dV, dw);
-                    w += h_step * dw;
-                } else {
-                    const real g_ex_mid = 0.5 * (g_ex + g_ex_next);
-                    const real g_in_mid = 0.5 * (g_in + g_in_next);
-
-                    real k1V, k1w, k2V, k2w, k3V, k3w, k4V, k4w;
-                    derivatives(cell, V, w, g_ex, g_in, I_ext, k1V, k1w);
-                    derivatives(cell, V + 0.5 * h_step * k1V, w + 0.5 * h_step * k1w, g_ex_mid,
-                                g_in_mid, I_ext, k2V, k2w);
-                    derivatives(cell, V + 0.5 * h_step * k2V, w + 0.5 * h_step * k2w, g_ex_mid,
-                                g_in_mid, I_ext, k3V, k3w);
-                    derivatives(cell, V + h_step * k3V, w + h_step * k3w, g_ex_next, g_in_next,
-                                I_ext, k4V, k4w);
-
-                    V += (h_step / 6.0) * (k1V + 2.0 * k2V + 2.0 * k3V + k4V);
-                    w += (h_step / 6.0) * (k1w + 2.0 * k2w + 2.0 * k3w + k4w);
-                }
-
-                g_ex = g_ex_next;
-                dg_ex = dg_ex_next;
-                g_in = g_in_next;
-                dg_in = dg_in_next;
-
-                if (refractory_steps_[cell] > 0) {
-                    --refractory_steps_[cell];
-                } else if (V >= p.V_peak) {
-                    V = p.V_reset;
-                    w += p.b;
-                    const int ref = static_cast<int>(p.t_ref / h_step + 0.5);
-                    refractory_steps_[cell] = ref;
-                    spiked = true;
-                }
-            }
-
-            V_[cell] = V;
-            w_[cell] = w;
-            g_ex_[cell] = g_ex;
-            dg_ex_[cell] = dg_ex;
-            g_in_[cell] = g_in;
-            dg_in_[cell] = dg_in;
+            const bool spiked = neuron_advance(
+                p, h_step, time.substeps, exc_input_[cell], inh_input_[cell], psc_init_ex_[cell],
+                psc_init_in_[cell], I_ext, V_[cell], w_[cell], g_ex_[cell], dg_ex_[cell],
+                g_in_[cell], dg_in_[cell], refractory_steps_[cell]);
+            exc_input_[cell] = 0.0;
+            inh_input_[cell] = 0.0;
 
             if (spiked) {
                 thread_spikes.push_back(Spike{step, cell});

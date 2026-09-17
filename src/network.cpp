@@ -513,6 +513,7 @@ void Network::run(Recorder &recorder) {
   // State stays on the device for the run, so the per-step map clauses find
   // the arrays present and move nothing.
   astro_.device_begin();
+  neurons_.device_begin();
 
   for (std::int64_t step = 0; step < total; ++step) {
     const bool measured = step >= pre_steps;
@@ -626,6 +627,7 @@ void Network::run(Recorder &recorder) {
     }
   }
   astro_.device_end();
+  neurons_.device_end();
 
   profile_.total = tick(measured_start);
   std::cout << "  done            " << std::endl;
