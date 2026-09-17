@@ -21,6 +21,15 @@ option(ASTROSIMGPU_KOKKOS "Run the astrocyte update through Kokkos" OFF)
 # Native CUDA, as the reference point the two portable routes are measured
 # against. Also mutually exclusive with them.
 option(ASTROSIMGPU_CUDA "Run the astrocyte update through native CUDA" OFF)
+# neuron_update_kernel compiles to 122 registers/thread (measured with ncu),
+# well above astro_update_kernel's 94, and is occupancy-limited as a result.
+# 0 (default) leaves the register count to the compiler, unchanged from
+# today. A positive value passes -maxrregcount=N to nvcc for that one file
+# only, trading register budget for more resident warps per SM -- sweep
+# this empirically (e.g. 64, 80, 96, 110) and check with ncu that Local
+# Memory spill stays at zero; if it doesn't, that value is too aggressive.
+set(ASTROSIMGPU_NEURON_MAXREGCOUNT 0 CACHE STRING
+    "Cap registers/thread for neuron_update_kernel via nvcc -maxrregcount (0 = compiler default)")
 
 add_library(astrosimgpu_core
   src/astrocyte.cpp
@@ -75,6 +84,11 @@ if(ASTROSIMGPU_CUDA)
     set(CMAKE_CUDA_ARCHITECTURES 90)
   endif()
   target_sources(astrosimgpu_core PRIVATE src/astrocyte_cuda.cu src/neuron_cuda.cu)
+  if(ASTROSIMGPU_NEURON_MAXREGCOUNT GREATER 0)
+    set_source_files_properties(src/neuron_cuda.cu PROPERTIES
+        COMPILE_OPTIONS "--maxrregcount=${ASTROSIMGPU_NEURON_MAXREGCOUNT}")
+    message(STATUS "neuron_update_kernel: capped at ${ASTROSIMGPU_NEURON_MAXREGCOUNT} registers/thread")
+  endif()
   target_compile_definitions(astrosimgpu_core PUBLIC ASTROSIMGPU_CUDA)
   set_target_properties(astrosimgpu_core PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
   # network.cpp is compiled by the host compiler, not nvcc, but it needs
